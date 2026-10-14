@@ -374,9 +374,6 @@ void GameCubePane::UpdateButton(ExpansionInterface::Slot slot)
                  device == ExpansionInterface::EXIDeviceType::Baseboard;
     break;
   case ExpansionInterface::Slot::SP2:
-    has_config = false;
-    break;
-  case ExpansionInterface::Slot::SP2:
     has_config = (device == ExpansionInterface::EXIDeviceType::SD);
     break;
   }
