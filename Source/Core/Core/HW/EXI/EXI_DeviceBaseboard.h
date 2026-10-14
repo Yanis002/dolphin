@@ -22,7 +22,7 @@ public:
   explicit CEXIBaseboard(Core::System& system);
   ~CEXIBaseboard() override;
 
-  void SetCS(int cs) override;
+  void SetCS(u32 cs, bool was_selected, bool is_selected) override;
   bool IsInterruptSet() override;
   bool IsPresent() const override;
   void DoState(PointerWrap& p) override;

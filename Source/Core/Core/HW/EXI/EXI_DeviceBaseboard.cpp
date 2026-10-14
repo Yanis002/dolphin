@@ -99,7 +99,7 @@ CEXIBaseboard::~CEXIBaseboard()
 {
 }
 
-void CEXIBaseboard::SetCS(int cs)
+void CEXIBaseboard::SetCS(u32 cs, bool was_selected, bool is_selected)
 {
   DEBUG_LOG_FMT(SP1, "AM-BB: ChipSelect={}", cs);
   if (cs)
