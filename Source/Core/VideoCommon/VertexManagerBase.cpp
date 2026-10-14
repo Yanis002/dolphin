@@ -9,6 +9,7 @@
 
 #include "Common/ChunkFile.h"
 #include "Common/CommonTypes.h"
+#include "Common/Contains.h"
 #include "Common/EnumMap.h"
 #include "Common/Logging/Log.h"
 #include "Common/MathUtil.h"
@@ -24,7 +25,6 @@
 #include "VideoCommon/DataReader.h"
 #include "VideoCommon/FramebufferManager.h"
 #include "VideoCommon/GeometryShaderManager.h"
-#include "VideoCommon/GraphicsModSystem/Runtime/CustomShaderCache.h"
 #include "VideoCommon/GraphicsModSystem/Runtime/GraphicsModActionData.h"
 #include "VideoCommon/GraphicsModSystem/Runtime/GraphicsModManager.h"
 #include "VideoCommon/IndexGenerator.h"
@@ -35,7 +35,6 @@
 #include "VideoCommon/PixelShaderManager.h"
 #include "VideoCommon/Statistics.h"
 #include "VideoCommon/TextureCacheBase.h"
-#include "VideoCommon/TextureInfo.h"
 #include "VideoCommon/VertexLoaderManager.h"
 #include "VideoCommon/VertexShaderManager.h"
 #include "VideoCommon/VideoBackendBase.h"
@@ -117,13 +116,13 @@ VertexManagerBase::~VertexManagerBase() = default;
 
 bool VertexManagerBase::Initialize()
 {
+  auto& video_events = GetVideoEvents();
+
   m_frame_end_event =
-      AfterFrameEvent::Register([this](Core::System&) { OnEndFrame(); }, "VertexManagerBase");
-  m_after_present_event = AfterPresentEvent::Register(
-      [this](const PresentInfo& pi) { m_ticks_elapsed = pi.emulated_timestamp; },
-      "VertexManagerBase");
+      video_events.after_frame_event.Register([this](Core::System&) { OnEndFrame(); });
+  m_after_present_event = video_events.after_present_event.Register(
+      [this](const PresentInfo& pi) { m_ticks_elapsed = pi.emulated_timestamp; });
   m_index_generator.Init();
-  m_custom_shader_cache = std::make_unique<CustomShaderCache>();
   m_cpu_cull.Init();
   return true;
 }
@@ -155,7 +154,7 @@ DataReader VertexManagerBase::PrepareForAdditionalData(OpcodeDecoder::Primitive 
   u32 const needed_vertex_bytes = count * stride + 4;
 
   // We can't merge different kinds of primitives, so we have to flush here
-  PrimitiveType new_primitive_type = g_ActiveConfig.backend_info.bSupportsPrimitiveRestart ?
+  PrimitiveType new_primitive_type = g_backend_info.bSupportsPrimitiveRestart ?
                                          primitive_from_gx_pr[primitive] :
                                          primitive_from_gx[primitive];
   if (m_current_primitive_type != new_primitive_type) [[unlikely]]
@@ -242,7 +241,7 @@ u32 VertexManagerBase::GetRemainingIndices(OpcodeDecoder::Primitive primitive) c
   {
     if (g_Config.UseVSForLinePointExpand())
     {
-      if (g_Config.backend_info.bSupportsPrimitiveRestart)
+      if (g_backend_info.bSupportsPrimitiveRestart)
       {
         switch (primitive)
         {
@@ -286,7 +285,7 @@ u32 VertexManagerBase::GetRemainingIndices(OpcodeDecoder::Primitive primitive) c
       }
     }
   }
-  else if (g_Config.backend_info.bSupportsPrimitiveRestart)
+  else if (g_backend_info.bSupportsPrimitiveRestart)
   {
     switch (primitive)
     {
@@ -347,8 +346,7 @@ void VertexManagerBase::CommitBuffer(u32 num_vertices, u32 vertex_stride, u32 nu
 void VertexManagerBase::DrawCurrentBatch(u32 base_index, u32 num_indices, u32 base_vertex)
 {
   // If bounding box is enabled, we need to flush any changes first, then invalidate what we have.
-  if (g_bounding_box->IsEnabled() && g_ActiveConfig.bBBoxEnable &&
-      g_ActiveConfig.backend_info.bSupportsBBox)
+  if (g_bounding_box->IsEnabled() && g_ActiveConfig.bBBoxEnable && g_backend_info.bSupportsBBox)
   {
     g_bounding_box->Flush();
   }
@@ -442,7 +440,7 @@ void VertexManagerBase::Flush()
   if (m_draw_counter == 0)
   {
     // This is more or less the start of the Frame
-    BeforeFrameEvent::Trigger();
+    GetVideoEvents().before_frame_event.Trigger();
   }
 
   if (xfmem.numTexGen.numTexGens != bpmem.genMode.numtexgens ||
@@ -459,13 +457,11 @@ void VertexManagerBase::Flush()
     // eventually simulate the behavior we have test cases for it.
     if (xfmem.numTexGen.numTexGens != bpmem.genMode.numtexgens)
     {
-      DolphinAnalytics::Instance().ReportGameQuirk(
-          GameQuirk::MISMATCHED_GPU_TEXGENS_BETWEEN_XF_AND_BP);
+      DolphinAnalytics::Instance().ReportGameQuirk(GameQuirk::MismatchedGPUTexGensBetweenXFAndBP);
     }
     if (xfmem.numChan.numColorChans != bpmem.genMode.numcolchans)
     {
-      DolphinAnalytics::Instance().ReportGameQuirk(
-          GameQuirk::MISMATCHED_GPU_COLORS_BETWEEN_XF_AND_BP);
+      DolphinAnalytics::Instance().ReportGameQuirk(GameQuirk::MismatchedGPUColorsBetweenXFAndBP);
     }
 
     return;
@@ -474,8 +470,8 @@ void VertexManagerBase::Flush()
 #if defined(_DEBUG) || defined(DEBUGFAST)
   PRIM_LOG("frame{}:\n texgen={}, numchan={}, dualtex={}, ztex={}, cole={}, alpe={}, ze={}",
            g_ActiveConfig.iSaveTargetId, xfmem.numTexGen.numTexGens, xfmem.numChan.numColorChans,
-           xfmem.dualTexTrans.enabled, bpmem.ztex2.op.Value(), bpmem.blendmode.colorupdate.Value(),
-           bpmem.blendmode.alphaupdate.Value(), bpmem.zmode.updateenable.Value());
+           xfmem.dualTexTrans.enabled, bpmem.ztex2.op.Value(), bpmem.blendmode.color_update.Value(),
+           bpmem.blendmode.alpha_update.Value(), bpmem.zmode.update_enable.Value());
 
   for (u32 i = 0; i < xfmem.numChan.numColorChans; ++i)
   {
@@ -558,7 +554,7 @@ void VertexManagerBase::Flush()
     pixel_shader_manager.constants.time_ms = seconds_elapsed * 1000;
   }
 
-  CalculateBinormals(VertexLoaderManager::GetCurrentVertexFormat());
+  CalculateNormals(VertexLoaderManager::GetCurrentVertexFormat());
   // Calculate ZSlope for zfreeze
   const auto used_textures = UsedTextures();
   std::vector<std::string> texture_names;
@@ -570,7 +566,7 @@ void VertexManagerBase::Flush()
     {
       for (const u32 i : used_textures)
       {
-        const auto cache_entry = g_texture_cache->Load(TextureInfo::FromStage(i));
+        const auto cache_entry = g_texture_cache->Load(i);
         if (!cache_entry)
           continue;
         const float custom_tex_scale = cache_entry->GetWidth() / float(cache_entry->native_width);
@@ -582,11 +578,10 @@ void VertexManagerBase::Flush()
     {
       for (const u32 i : used_textures)
       {
-        const auto cache_entry = g_texture_cache->Load(TextureInfo::FromStage(i));
+        const auto cache_entry = g_texture_cache->Load(i);
         if (cache_entry)
         {
-          if (std::find(texture_names.begin(), texture_names.end(),
-                        cache_entry->texture_info_name) == texture_names.end())
+          if (!Common::Contains(texture_names, cache_entry->texture_info_name))
           {
             texture_names.push_back(cache_entry->texture_info_name);
             texture_units.push_back(i);
@@ -613,25 +608,12 @@ void VertexManagerBase::Flush()
 
   if (!m_cull_all)
   {
-    CustomPixelShaderContents custom_pixel_shader_contents;
-    std::optional<CustomPixelShader> custom_pixel_shader;
-    std::vector<std::string> custom_pixel_texture_names;
-    std::span<u8> custom_pixel_shader_uniforms;
     bool skip = false;
-    for (size_t i = 0; i < texture_names.size(); i++)
+    for (const std::string& texture_name : texture_names)
     {
-      GraphicsModActionData::DrawStarted draw_started{texture_units, &skip, &custom_pixel_shader,
-                                                      &custom_pixel_shader_uniforms};
-      for (const auto& action : g_graphics_mod_manager->GetDrawStartedActions(texture_names[i]))
-      {
+      GraphicsModActionData::DrawStarted draw_started{texture_units, &skip};
+      for (const auto& action : g_graphics_mod_manager->GetDrawStartedActions(texture_name))
         action->OnDrawStarted(&draw_started);
-        if (custom_pixel_shader)
-        {
-          custom_pixel_shader_contents.shaders.push_back(*custom_pixel_shader);
-          custom_pixel_texture_names.push_back(texture_names[i]);
-        }
-        custom_pixel_shader = std::nullopt;
-      }
     }
 
     // Now the vertices can be flushed to the GPU. Everything following the CommitBuffer() call
@@ -645,38 +627,19 @@ void VertexManagerBase::Flush()
     // Same with GPU texture decoding, which uses compute shaders.
     g_texture_cache->BindTextures(used_textures, samplers);
 
-    if (PerfQueryBase::ShouldEmulate())
-      g_perf_query->EnableQuery(bpmem.zcontrol.early_ztest ? PQG_ZCOMP_ZCOMPLOC : PQG_ZCOMP);
-
     if (!skip)
     {
       UpdatePipelineConfig();
       UpdatePipelineObject();
       if (m_current_pipeline_object)
       {
-        const AbstractPipeline* pipeline_object = m_current_pipeline_object;
-        if (!custom_pixel_shader_contents.shaders.empty())
-        {
-          if (const auto custom_pipeline =
-                  GetCustomPipeline(custom_pixel_shader_contents, m_current_pipeline_config,
-                                    m_current_uber_pipeline_config, m_current_pipeline_object))
-          {
-            pipeline_object = custom_pipeline;
-          }
-        }
-        RenderDrawCall(pixel_shader_manager, geometry_shader_manager, custom_pixel_shader_contents,
-                       custom_pixel_shader_uniforms, m_current_primitive_type, pipeline_object);
+        RenderDrawCall(pixel_shader_manager, geometry_shader_manager, m_current_primitive_type,
+                       m_current_pipeline_object);
       }
     }
 
-    // Track the total emulated state draws
-    INCSTAT(g_stats.this_frame.num_draw_calls);
-
     // Even if we skip the draw, emulated state should still be impacted
     OnDraw();
-
-    if (PerfQueryBase::ShouldEmulate())
-      g_perf_query->DisableQuery(bpmem.zcontrol.early_ztest ? PQG_ZCOMP_ZCOMPLOC : PQG_ZCOMP);
 
     // The EFB cache is now potentially stale.
     g_framebuffer_manager->FlagPeekCacheAsOutOfDate();
@@ -699,6 +662,7 @@ void VertexManagerBase::DoState(PointerWrap& p)
   }
 
   p.Do(m_zslope);
+  p.Do(VertexLoaderManager::normal_cache);
   p.Do(VertexLoaderManager::tangent_cache);
   p.Do(VertexLoaderManager::binormal_cache);
 }
@@ -769,7 +733,7 @@ void VertexManagerBase::CalculateZSlope(NativeVertexFormat* format)
   m_zslope.dirty = true;
 }
 
-void VertexManagerBase::CalculateBinormals(NativeVertexFormat* format)
+void VertexManagerBase::CalculateNormals(NativeVertexFormat* format)
 {
   const PortableVertexDeclaration vert_decl = format->GetVertexDeclaration();
 
@@ -792,6 +756,16 @@ void VertexManagerBase::CalculateBinormals(NativeVertexFormat* format)
   if (vertex_shader_manager.constants.cached_binormal != VertexLoaderManager::binormal_cache)
   {
     vertex_shader_manager.constants.cached_binormal = VertexLoaderManager::binormal_cache;
+    vertex_shader_manager.dirty = true;
+  }
+
+  if (vert_decl.normals[0].enable)
+    return;
+
+  VertexLoaderManager::normal_cache[3] = 0;
+  if (vertex_shader_manager.constants.cached_normal != VertexLoaderManager::normal_cache)
+  {
+    vertex_shader_manager.constants.cached_normal = VertexLoaderManager::normal_cache;
     vertex_shader_manager.dirty = true;
   }
 }
@@ -954,8 +928,7 @@ void VertexManagerBase::OnDraw()
 
   // Check if this draw is scheduled to kick a command buffer.
   // The draw counters will always be sorted so a binary search is possible here.
-  if (std::binary_search(m_scheduled_command_buffer_kicks.begin(),
-                         m_scheduled_command_buffer_kicks.end(), m_draw_counter))
+  if (std::ranges::binary_search(m_scheduled_command_buffer_kicks, m_draw_counter))
   {
     // Kick a command buffer on the background thread.
     g_gfx->Flush();
@@ -966,7 +939,7 @@ void VertexManagerBase::OnDraw()
 
 void VertexManagerBase::OnCPUEFBAccess()
 {
-  // Check this isn't another access without any draws inbetween.
+  // Check this isn't another access without any draws in between.
   if (!m_cpu_accesses_this_frame.empty() && m_cpu_accesses_this_frame.back() == m_draw_counter)
     return;
 
@@ -1041,19 +1014,6 @@ void VertexManagerBase::OnEndFrame()
     }
   }
 
-#if 0
-  {
-    std::ostringstream ss;
-    std::for_each(m_cpu_accesses_this_frame.begin(), m_cpu_accesses_this_frame.end(), [&ss](u32 idx) { ss << idx << ","; });
-    WARN_LOG_FMT(VIDEO, "CPU EFB accesses in last frame: {}", ss.str());
-  }
-  {
-    std::ostringstream ss;
-    std::for_each(m_scheduled_command_buffer_kicks.begin(), m_scheduled_command_buffer_kicks.end(), [&ss](u32 idx) { ss << idx << ","; });
-    WARN_LOG_FMT(VIDEO, "Scheduled command buffer kicks: {}", ss.str());
-  }
-#endif
-
   m_cpu_accesses_this_frame.clear();
 
   // We invalidate the pipeline object at the start of the frame.
@@ -1063,27 +1023,14 @@ void VertexManagerBase::OnEndFrame()
   InvalidatePipelineObject();
 }
 
-void VertexManagerBase::NotifyCustomShaderCacheOfHostChange(const ShaderHostConfig& host_config)
-{
-  m_custom_shader_cache->SetHostConfig(host_config);
-  m_custom_shader_cache->Reload();
-}
-
-void VertexManagerBase::RenderDrawCall(
-    PixelShaderManager& pixel_shader_manager, GeometryShaderManager& geometry_shader_manager,
-    const CustomPixelShaderContents& custom_pixel_shader_contents,
-    std::span<u8> custom_pixel_shader_uniforms, PrimitiveType primitive_type,
-    const AbstractPipeline* current_pipeline)
+void VertexManagerBase::RenderDrawCall(PixelShaderManager& pixel_shader_manager,
+                                       GeometryShaderManager& geometry_shader_manager,
+                                       PrimitiveType primitive_type,
+                                       const AbstractPipeline* current_pipeline)
 {
   // Now we can upload uniforms, as nothing else will override them.
   geometry_shader_manager.SetConstants(primitive_type);
   pixel_shader_manager.SetConstants();
-  if (!custom_pixel_shader_uniforms.empty() &&
-      pixel_shader_manager.custom_constants.data() != custom_pixel_shader_uniforms.data())
-  {
-    pixel_shader_manager.custom_constants_dirty = true;
-  }
-  pixel_shader_manager.custom_constants = custom_pixel_shader_uniforms;
   UploadUniforms();
 
   g_gfx->SetPipeline(current_pipeline);
@@ -1093,8 +1040,7 @@ void VertexManagerBase::RenderDrawCall(
                VertexLoaderManager::GetCurrentVertexFormat()->GetVertexStride(),
                m_index_generator.GetIndexLen(), &base_vertex, &base_index);
 
-  if (g_ActiveConfig.backend_info.api_type != APIType::D3D &&
-      g_ActiveConfig.UseVSForLinePointExpand() &&
+  if (g_backend_info.api_type != APIType::D3D && g_ActiveConfig.UseVSForLinePointExpand() &&
       (primitive_type == PrimitiveType::Points || primitive_type == PrimitiveType::Lines))
   {
     // VS point/line expansion puts the vertex id at gl_VertexID << 2
@@ -1103,72 +1049,14 @@ void VertexManagerBase::RenderDrawCall(
     base_vertex <<= 2;
   }
 
+  if (PerfQueryBase::ShouldEmulate())
+    g_perf_query->EnableQuery(bpmem.zcontrol.early_ztest ? PQG_ZCOMP_ZCOMPLOC : PQG_ZCOMP);
+
   DrawCurrentBatch(base_index, m_index_generator.GetIndexLen(), base_vertex);
-}
 
-const AbstractPipeline* VertexManagerBase::GetCustomPipeline(
-    const CustomPixelShaderContents& custom_pixel_shader_contents,
-    const VideoCommon::GXPipelineUid& current_pipeline_config,
-    const VideoCommon::GXUberPipelineUid& current_uber_pipeline_config,
-    const AbstractPipeline* current_pipeline) const
-{
-  if (current_pipeline)
-  {
-    if (!custom_pixel_shader_contents.shaders.empty())
-    {
-      CustomShaderInstance custom_shaders;
-      custom_shaders.pixel_contents = custom_pixel_shader_contents;
-      switch (g_ActiveConfig.iShaderCompilationMode)
-      {
-      case ShaderCompilationMode::Synchronous:
-      case ShaderCompilationMode::AsynchronousSkipRendering:
-      {
-        if (auto pipeline = m_custom_shader_cache->GetPipelineAsync(
-                current_pipeline_config, custom_shaders, current_pipeline->m_config))
-        {
-          return *pipeline;
-        }
-      }
-      break;
-      case ShaderCompilationMode::SynchronousUberShaders:
-      {
-        // D3D has issues compiling large custom ubershaders
-        // use specialized shaders instead
-        if (g_ActiveConfig.backend_info.api_type == APIType::D3D)
-        {
-          if (auto pipeline = m_custom_shader_cache->GetPipelineAsync(
-                  current_pipeline_config, custom_shaders, current_pipeline->m_config))
-          {
-            return *pipeline;
-          }
-        }
-        else
-        {
-          if (auto pipeline = m_custom_shader_cache->GetPipelineAsync(
-                  current_uber_pipeline_config, custom_shaders, current_pipeline->m_config))
-          {
-            return *pipeline;
-          }
-        }
-      }
-      break;
-      case ShaderCompilationMode::AsynchronousUberShaders:
-      {
-        if (auto pipeline = m_custom_shader_cache->GetPipelineAsync(
-                current_pipeline_config, custom_shaders, current_pipeline->m_config))
-        {
-          return *pipeline;
-        }
-        else if (auto uber_pipeline = m_custom_shader_cache->GetPipelineAsync(
-                     current_uber_pipeline_config, custom_shaders, current_pipeline->m_config))
-        {
-          return *uber_pipeline;
-        }
-      }
-      break;
-      };
-    }
-  }
+  // Track the total emulated state draws
+  INCSTAT(g_stats.this_frame.num_draw_calls);
 
-  return nullptr;
+  if (PerfQueryBase::ShouldEmulate())
+    g_perf_query->DisableQuery(bpmem.zcontrol.early_ztest ? PQG_ZCOMP_ZCOMPLOC : PQG_ZCOMP);
 }

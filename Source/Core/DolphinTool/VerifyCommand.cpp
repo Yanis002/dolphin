@@ -3,15 +3,16 @@
 
 #include "DolphinTool/VerifyCommand.h"
 
+#include <array>
 #include <cstdlib>
 #include <string>
 #include <vector>
 
 #include <OptionParser.h>
-#include <fmt/format.h>
 #include <fmt/ostream.h>
+#include <fmt/ranges.h>
 
-#include "Common/StringUtil.h"
+#include "Core/AchievementManager.h"
 #include "DiscIO/Volume.h"
 #include "DiscIO/VolumeVerifier.h"
 #include "UICommon/UICommon.h"
@@ -75,6 +76,7 @@ static void PrintFullReport(const DiscIO::VolumeVerifier::Result& result)
 
 int VerifyCommand(const std::vector<std::string>& args)
 {
+  using namespace std::literals;
   optparse::OptionParser parser;
 
   parser.usage("usage: verify [options]...");
@@ -92,12 +94,13 @@ int VerifyCommand(const std::vector<std::string>& args)
       .help("Path to input file.")
       .metavar("FILE");
 
+  static constexpr std::array algorithms{"crc32"sv, "md5"sv, "sha1"sv, "rchash"sv};
   parser.add_option("-a", "--algorithm")
       .type("string")
       .action("store")
-      .help("Optional. Compute and print the digest using the selected algorithm, then exit. "
-            "[%choices]")
-      .choices({"crc32", "md5", "sha1"});
+      .help("Optional. Compute and print the digest using the selected algorithm, then exit.")
+      .metavar(fmt::format("{}", fmt::join(algorithms, "|")))
+      .choices(algorithms.begin(), algorithms.end());
 
   const optparse::Values& options = parser.parse_args(args);
 
@@ -114,6 +117,9 @@ int VerifyCommand(const std::vector<std::string>& args)
   }
   const std::string& input_file_path = options["input"];
 
+  bool rc_hash_calculate = false;
+  std::string rc_hash_result = "0";
+
   DiscIO::Hashes<bool> hashes_to_calculate{};
   const bool algorithm_is_set = options.is_set("algorithm");
   if (!algorithm_is_set)
@@ -129,9 +135,14 @@ int VerifyCommand(const std::vector<std::string>& args)
       hashes_to_calculate.md5 = true;
     else if (algorithm == "sha1")
       hashes_to_calculate.sha1 = true;
+#ifdef USE_RETRO_ACHIEVEMENTS
+    else if (algorithm == "rchash")
+      rc_hash_calculate = true;
+#endif
   }
 
-  if (!hashes_to_calculate.crc32 && !hashes_to_calculate.md5 && !hashes_to_calculate.sha1)
+  if (!hashes_to_calculate.crc32 && !hashes_to_calculate.md5 && !hashes_to_calculate.sha1 &&
+      !rc_hash_calculate)
   {
     // optparse should protect from this
     fmt::print(std::cerr, "Error: No algorithms selected for the operation\n");
@@ -156,6 +167,14 @@ int VerifyCommand(const std::vector<std::string>& args)
   verifier.Finish();
   const DiscIO::VolumeVerifier::Result& result = verifier.GetResult();
 
+#ifdef USE_RETRO_ACHIEVEMENTS
+  // Calculate rcheevos hash
+  if (rc_hash_calculate)
+  {
+    rc_hash_result = AchievementManager::CalculateHash(input_file_path);
+  }
+#endif
+
   // Print the report
   if (!algorithm_is_set)
   {
@@ -169,6 +188,8 @@ int VerifyCommand(const std::vector<std::string>& args)
       fmt::print(std::cout, "{}\n", HashToHexString(result.hashes.md5));
     else if (hashes_to_calculate.sha1 && !result.hashes.sha1.empty())
       fmt::print(std::cout, "{}\n", HashToHexString(result.hashes.sha1));
+    else if (rc_hash_calculate)
+      fmt::print(std::cout, "{}\n", rc_hash_result);
     else
     {
       fmt::print(std::cerr, "Error: No hash computed\n");

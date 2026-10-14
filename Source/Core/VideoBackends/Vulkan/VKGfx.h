@@ -38,8 +38,10 @@ public:
   CreateFramebuffer(AbstractTexture* color_attachment, AbstractTexture* depth_attachment,
                     std::vector<AbstractTexture*> additional_color_attachments) override;
 
-  std::unique_ptr<AbstractShader> CreateShaderFromSource(ShaderStage stage, std::string_view source,
-                                                         std::string_view name) override;
+  std::unique_ptr<AbstractShader>
+  CreateShaderFromSource(ShaderStage stage, std::string_view source,
+                         VideoCommon::ShaderIncluder* shader_includer,
+                         std::string_view name) override;
   std::unique_ptr<AbstractShader> CreateShaderFromBinary(ShaderStage stage, const void* data,
                                                          size_t length,
                                                          std::string_view name) override;
@@ -74,12 +76,12 @@ public:
   void DrawIndexed(u32 base_index, u32 num_indices, u32 base_vertex) override;
   void DispatchComputeShader(const AbstractShader* shader, u32 groupsize_x, u32 groupsize_y,
                              u32 groupsize_z, u32 groups_x, u32 groups_y, u32 groups_z) override;
-  void BindBackbuffer(const ClearColor& clear_color = {}) override;
+  bool BindBackbuffer(const ClearColor& clear_color = {}) override;
   void PresentBackbuffer() override;
   void SetFullscreen(bool enable_fullscreen) override;
   bool IsFullscreen() const override;
 
-  virtual SurfaceInfo GetSurfaceInfo() const override;
+  SurfaceInfo GetSurfaceInfo() const override;
 
   // Completes the current render pass, executes the command buffer, and restores state ready for
   // next render. Use when you want to kick the current buffer to make room for new data.

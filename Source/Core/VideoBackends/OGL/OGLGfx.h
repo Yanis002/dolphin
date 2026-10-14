@@ -17,7 +17,7 @@ class OGLGfx final : public AbstractGfx
 {
 public:
   OGLGfx(std::unique_ptr<GLContext> main_gl_context, float backbuffer_scale);
-  ~OGLGfx();
+  ~OGLGfx() override;
 
   bool IsHeadless() const override;
 
@@ -25,8 +25,10 @@ public:
                                                  std::string_view name) override;
   std::unique_ptr<AbstractStagingTexture>
   CreateStagingTexture(StagingTextureType type, const TextureConfig& config) override;
-  std::unique_ptr<AbstractShader> CreateShaderFromSource(ShaderStage stage, std::string_view source,
-                                                         std::string_view name) override;
+  std::unique_ptr<AbstractShader>
+  CreateShaderFromSource(ShaderStage stage, std::string_view source,
+                         VideoCommon::ShaderIncluder* shader_includer,
+                         std::string_view name) override;
   std::unique_ptr<AbstractShader> CreateShaderFromBinary(ShaderStage stage, const void* data,
                                                          size_t length,
                                                          std::string_view name) override;
@@ -57,7 +59,7 @@ public:
   void DrawIndexed(u32 base_index, u32 num_indices, u32 base_vertex) override;
   void DispatchComputeShader(const AbstractShader* shader, u32 groupsize_x, u32 groupsize_y,
                              u32 groupsize_z, u32 groups_x, u32 groups_y, u32 groups_z) override;
-  void BindBackbuffer(const ClearColor& clear_color = {}) override;
+  bool BindBackbuffer(const ClearColor& clear_color = {}) override;
   void PresentBackbuffer() override;
 
   void BeginUtilityDrawing() override;
@@ -67,9 +69,9 @@ public:
   void WaitForGPUIdle() override;
   void OnConfigChanged(u32 bits) override;
 
-  virtual void SelectLeftBuffer() override;
-  virtual void SelectRightBuffer() override;
-  virtual void SelectMainBuffer() override;
+  void SelectLeftBuffer() override;
+  void SelectRightBuffer() override;
+  void SelectMainBuffer() override;
 
   std::unique_ptr<VideoCommon::AsyncShaderCompiler> CreateAsyncShaderCompiler() override;
 

@@ -5,7 +5,6 @@
 
 #include <fmt/format.h>
 
-#include "Common/CommonPaths.h"
 #include "Common/FileUtil.h"
 #include "Common/JsonUtil.h"
 #include "Common/Logging/Log.h"
@@ -329,9 +328,4 @@ void GraphicsModConfig::DeserializeFromProfile(const picojson::object& obj)
       m_weight = static_cast<u16>(it->second.get<double>());
     }
   }
-}
-
-bool GraphicsModConfig::operator<(const GraphicsModConfig& other) const
-{
-  return m_weight < other.m_weight;
 }

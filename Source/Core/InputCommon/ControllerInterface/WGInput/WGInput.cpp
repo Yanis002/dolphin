@@ -62,7 +62,7 @@ static constexpr std::array wgi_button_names = {
 template <typename T, typename M>
 struct MemberName
 {
-  M T::*ptr;
+  M T::* ptr;
   const char* name;
 };
 
@@ -125,9 +125,8 @@ public:
         u32 i = 0;
         for (auto& axis : m_axes)
         {
-          // AddAnalogInputs adds additional "FullAnalogSurface" Inputs.
-          AddAnalogInputs(new IndexedAxis(&axis, 0.5, +0.5, i),
-                          new IndexedAxis(&axis, 0.5, -0.5, i));
+          AddFullAnalogSurfaceInputs(new IndexedAxis(&axis, 0.5, +0.5, i),
+                                     new IndexedAxis(&axis, 0.5, -0.5, i));
           ++i;
         }
       }
@@ -329,7 +328,7 @@ private:
       if (m_switch == WGI::GameControllerSwitchPosition::Center)
         return 0.0;
 
-      // All of the "inbetween" states (e.g. Up-Right) are one-off from the four cardinal
+      // All of the "in between" states (e.g. Up-Right) are one-off from the four cardinal
       // directions. This tests that the current switch state value is within 1 of the desired
       // state.
       const auto direction_diff = std::abs(static_cast<int32_t>(m_switch) - m_direction);

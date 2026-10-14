@@ -12,20 +12,16 @@
 
 #include "Core/System.h"
 
-#include "VideoBackends/Vulkan/CommandBufferManager.h"
 #include "VideoBackends/Vulkan/StateTracker.h"
 #include "VideoBackends/Vulkan/VKGfx.h"
 #include "VideoBackends/Vulkan/VKStreamBuffer.h"
-#include "VideoBackends/Vulkan/VKVertexFormat.h"
 #include "VideoBackends/Vulkan/VulkanContext.h"
 
 #include "VideoCommon/GeometryShaderManager.h"
 #include "VideoCommon/IndexGenerator.h"
 #include "VideoCommon/PixelShaderManager.h"
 #include "VideoCommon/Statistics.h"
-#include "VideoCommon/VertexLoaderManager.h"
 #include "VideoCommon/VertexShaderManager.h"
-#include "VideoCommon/VideoConfig.h"
 
 namespace Vulkan
 {
@@ -92,8 +88,8 @@ bool VertexManager::Initialize()
   // Prefer an 8MB buffer if possible, but use less if the device doesn't support this.
   // This buffer is potentially going to be addressed as R8s in the future, so we assume
   // that one element is one byte.
-  const u32 texel_buffer_size = std::min(
-      TEXEL_STREAM_BUFFER_SIZE, g_vulkan_context->GetDeviceLimits().maxTexelBufferElements);
+  const u32 texel_buffer_size =
+      std::min(TEXEL_STREAM_BUFFER_SIZE, g_vulkan_context->GetDeviceInfo().maxTexelBufferElements);
   m_texel_stream_buffer =
       StreamBuffer::Create(VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT, texel_buffer_size);
   if (!m_texel_stream_buffer)
@@ -261,7 +257,7 @@ void VertexManager::UpdatePixelShaderConstants()
   if (pixel_shader_manager.custom_constants_dirty)
   {
     StateTracker::GetInstance()->SetGXUniformBuffer(
-        UBO_DESCRIPTOR_SET_BINDING_PS_CUST, m_uniform_stream_buffer->GetBuffer(),
+        UBO_DESCRIPTOR_SET_BINDING_CUST, m_uniform_stream_buffer->GetBuffer(),
         m_uniform_stream_buffer->GetCurrentOffset(),
         static_cast<u32>(pixel_shader_manager.custom_constants.size()));
     std::memcpy(m_uniform_stream_buffer->GetCurrentHostPointer(),
@@ -337,7 +333,7 @@ void VertexManager::UploadAllConstants()
   if (!pixel_shader_manager.custom_constants.empty())
   {
     StateTracker::GetInstance()->SetGXUniformBuffer(
-        UBO_DESCRIPTOR_SET_BINDING_PS_CUST, m_uniform_stream_buffer->GetBuffer(),
+        UBO_DESCRIPTOR_SET_BINDING_CUST, m_uniform_stream_buffer->GetBuffer(),
         m_uniform_stream_buffer->GetCurrentOffset() + custom_pixel_constants_offset,
         custom_constants_size);
   }

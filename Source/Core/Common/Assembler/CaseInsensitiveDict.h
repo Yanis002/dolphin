@@ -4,10 +4,10 @@
 #pragma once
 
 #include <array>
+#include <cctype>
+#include <cstdint>
 #include <optional>
-#include <string>
 #include <string_view>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -47,7 +47,7 @@ private:
     std::array<uint32_t, 36 + sizeof...(ExtraMatches)> _conns;
     std::optional<V> _val;
 
-    TrieEntry() { std::fill(_conns.begin(), _conns.end(), INVALID_CONN); }
+    TrieEntry() { _conns.fill(INVALID_CONN); }
   };
 
   constexpr size_t IndexOf(char c) const

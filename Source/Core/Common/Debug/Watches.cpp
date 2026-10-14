@@ -79,7 +79,7 @@ void Watches::DisableWatch(std::size_t index)
 
 bool Watches::HasEnabledWatch(u32 address) const
 {
-  return std::any_of(m_watches.begin(), m_watches.end(), [address](const auto& watch) {
+  return std::ranges::any_of(m_watches, [address](const auto& watch) {
     return watch.address == address && watch.is_enabled == Watch::State::Enabled;
   });
 }
@@ -89,7 +89,7 @@ void Watches::RemoveWatch(std::size_t index)
   m_watches.erase(m_watches.begin() + index);
 }
 
-void Watches::LoadFromStrings(const std::vector<std::string>& watches)
+void Watches::LoadFromStrings(std::span<const std::string> watches)
 {
   for (const std::string& watch : watches)
   {

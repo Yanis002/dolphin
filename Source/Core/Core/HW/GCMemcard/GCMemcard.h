@@ -177,7 +177,7 @@ struct HeaderData
   // 4 bytes at 0x001c: VI DTV status register value (u16 from 0xCC00206E)
   u32 m_dtv_status;
 
-  // 2 bytes at 0x0020: 0 if formated in slot A, 1 if formated in slot B
+  // 2 bytes at 0x0020: 0 if formatted in slot A, 1 if formatted in slot B
   Common::BigEndianValue<u16> m_device_id;
 
   // 2 bytes at 0x0022: Size of memcard in Mbits
@@ -192,7 +192,6 @@ void InitializeHeaderData(HeaderData* data, const CardFlashId& flash_id, u16 siz
                           bool shift_jis, u32 rtc_bias, u32 sram_language, u64 format_time);
 
 bool operator==(const HeaderData& lhs, const HeaderData& rhs);
-bool operator!=(const HeaderData& lhs, const HeaderData& rhs);
 
 struct Header
 {

@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
+#include <ranges>
 
 #include "Common/Assert.h"
 #include "Common/ChunkFile.h"
@@ -191,7 +192,7 @@ IPCReply USBV5ResourceManager::SuspendResume(USBV5Device& device, const IOCtlReq
 }
 
 std::optional<IPCReply> USBV5ResourceManager::HandleDeviceIOCtl(const IOCtlRequest& request,
-                                                                Handler handler)
+                                                                const Handler& handler)
 {
   if (request.buffer_in == 0 || request.buffer_in_size != 0x20)
     return IPCReply(IPC_EINVAL);
@@ -201,6 +202,22 @@ std::optional<IPCReply> USBV5ResourceManager::HandleDeviceIOCtl(const IOCtlReque
   if (!device)
     return IPCReply(IPC_EINVAL);
   return handler(*device);
+}
+
+IPCReply USBV5ResourceManager::GetUSBVersion(const IOCtlRequest& request) const
+{
+  static constexpr u32 VERSION = 0x50001;
+
+  if (request.buffer_in != 0 || request.buffer_in_size != 0 || request.buffer_out == 0 ||
+      request.buffer_out_size != 0x20)
+  {
+    return IPCReply(IPC_EINVAL);
+  }
+
+  auto& system = GetSystem();
+  auto& memory = system.GetMemory();
+  memory.Write_U32(VERSION, request.buffer_out);
+  return IPCReply(IPC_SUCCESS);
 }
 
 void USBV5ResourceManager::OnDeviceChange(const ChangeEvent event,
@@ -215,8 +232,8 @@ void USBV5ResourceManager::OnDeviceChange(const ChangeEvent event,
       if (interface.bAlternateSetting != 0)
         continue;
 
-      auto it = std::find_if(m_usbv5_devices.rbegin(), m_usbv5_devices.rend(),
-                             [](const USBV5Device& entry) { return !entry.in_use; });
+      auto it = std::ranges::find_if(m_usbv5_devices | std::views::reverse,
+                                     [](const USBV5Device& entry) { return !entry.in_use; });
       if (it == m_usbv5_devices.rend())
         return;
 

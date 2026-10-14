@@ -10,15 +10,16 @@
 #include <functional>
 #include <map>
 #include <memory>
-#include <set>
 #include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
 #include "Common/CommonTypes.h"
+#include "Common/RangeSet.h"
 #include "Core/HW/Memmap.h"
 #include "Core/PowerPC/Gekko.h"
+#include "Core/PowerPC/PPCAnalyst.h"
 
 class JitBase;
 
@@ -44,9 +45,6 @@ struct JitBlockData
   // and valid_block in particular). This is useful because of
   // of the way the instruction cache works on PowerPC.
   u32 physicalAddress;
-  // The number of bytes of JIT'ed code contained in this block. Mostly
-  // useful for logging.
-  u32 codeSize;
   // The number of PPC instructions represented by this block. Mostly
   // useful for logging.
   u32 originalSize;
@@ -103,7 +101,11 @@ struct JitBlock : public JitBlockData
   std::vector<LinkData> linkData;
 
   // This set stores all physical addresses of all occupied instructions.
-  std::set<u32> physical_addresses;
+  Common::RangeSet<u32> physical_addresses;
+
+  // This is only available when debugging is enabled. It is a trimmed-down copy of the
+  // PPCAnalyst::CodeBuffer used to recompile this block, including repeat instructions.
+  std::vector<std::pair<u32, UGeckoInstruction>> original_buffer;
 
   std::unique_ptr<ProfileData> profile_data;
 };
@@ -160,10 +162,14 @@ public:
   // Code Cache
   u8** GetEntryPoints();
   JitBlock** GetFastBlockMapFallback();
-  void RunOnBlocks(const Core::CPUThreadGuard& guard, std::function<void(const JitBlock&)> f) const;
+  void RunOnBlocks(const Core::CPUThreadGuard& guard,
+                   const std::function<void(const JitBlock&)>& f) const;
+  void WipeBlockProfilingData(const Core::CPUThreadGuard& guard);
+  std::size_t GetBlockCount() const { return block_map.size(); }
 
   JitBlock* AllocateBlock(u32 em_address);
-  void FinalizeBlock(JitBlock& block, bool block_link, const std::set<u32>& physical_addresses);
+  void FinalizeBlock(JitBlock& block, bool block_link, const PPCAnalyst::CodeBlock& code_block,
+                     const PPCAnalyst::CodeBuffer& code_buffer);
 
   // Look for the block in the slow but accurate way.
   // This function shall be used if FastLookupIndexForAddress() failed.
@@ -179,6 +185,7 @@ public:
   void InvalidateICache(u32 address, u32 length, bool forced);
   void InvalidateICacheLine(u32 address);
   void ErasePhysicalRange(u32 address, u32 length);
+  void EraseSingleBlock(const JitBlock& block);
 
   u32* GetBlockBitSet() const;
 
@@ -212,7 +219,8 @@ private:
   // Range of overlapping code indexed by a masked physical address.
   // This is used for invalidation of memory regions. The range is grouped
   // in macro blocks of each 0x100 bytes.
-  static constexpr u32 BLOCK_RANGE_MAP_ELEMENTS = 0x100;
+  static constexpr u32 BLOCK_RANGE_SIZE = 0x100;
+  static constexpr u32 BLOCK_RANGE_MAP_MASK = ~(BLOCK_RANGE_SIZE - 1);
   std::map<u32, std::unordered_set<JitBlock*>> block_range_map;
 
   // This bitsets shows which cachelines overlap with any blocks.
@@ -223,7 +231,7 @@ private:
   // It is used by the assembly dispatcher to quickly
   // know where to jump based on pc and msr bits.
   Common::LazyMemoryRegion m_entry_points_arena;
-  u8** m_entry_points_ptr = 0;
+  u8** m_entry_points_ptr = nullptr;
 
   // An alternative for the above but without a shm segment
   // in case the shm memory region couldn't be allocated.

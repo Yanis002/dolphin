@@ -6,19 +6,31 @@
 #include <QWidget>
 
 class ConfigBool;
-class GraphicsWindow;
-class QLabel;
-class ToolTipSlider;
+class ConfigSlider;
+class ConfigSliderLabel;
+class GraphicsPane;
+class QString;
+
+namespace Config
+{
+class Layer;
+}  // namespace Config
 
 class HacksWidget final : public QWidget
 {
   Q_OBJECT
 public:
-  explicit HacksWidget(GraphicsWindow* parent);
+  explicit HacksWidget(GraphicsPane* gfx_pane);
 
 private:
-  void LoadSettings();
-  void SaveSettings();
+  void CreateWidgets();
+  void ConnectWidgets();
+  void AddDescriptions();
+
+  void UpdateGPUTextureDecodingEnabled(const QString& backend_name);
+  void UpdateBoundingBoxEnabled(const QString& backend_name);
+  void UpdateDeferEFBCopiesEnabled();
+  void UpdateSkipPresentingDuplicateFramesEnabled();
 
   void OnBackendChanged(const QString& backend_name);
 
@@ -29,8 +41,8 @@ private:
   ConfigBool* m_defer_efb_copies;
 
   // Texture Cache
-  QLabel* m_accuracy_label;
-  ToolTipSlider* m_accuracy;
+  ConfigSliderLabel* m_accuracy_label;
+  ConfigSlider* m_accuracy;
   ConfigBool* m_gpu_texture_decoding;
 
   // External Framebuffer
@@ -45,10 +57,5 @@ private:
   ConfigBool* m_vi_skip;
   ConfigBool* m_save_texture_cache_state;
 
-  void CreateWidgets();
-  void ConnectWidgets();
-  void AddDescriptions();
-
-  void UpdateDeferEFBCopiesEnabled();
-  void UpdateSkipPresentingDuplicateFramesEnabled();
+  Config::Layer* m_game_layer = nullptr;
 };

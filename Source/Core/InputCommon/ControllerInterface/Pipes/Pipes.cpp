@@ -12,8 +12,8 @@
 #include <map>
 #include <sstream>
 #include <string>
-#include <sys/stat.h>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 
 #include "Common/FileUtil.h"
@@ -74,7 +74,7 @@ void InputBackend::PopulateDevices()
   }
 }
 
-PipeDevice::PipeDevice(int fd, const std::string& name) : m_fd(fd), m_name(name)
+PipeDevice::PipeDevice(int fd, std::string name) : m_fd(fd), m_name(std::move(name))
 {
   for (const auto& tok : s_button_tokens)
   {
@@ -129,7 +129,7 @@ void PipeDevice::AddAxis(const std::string& name, double value)
   ax_lo->SetState(value);
   m_axes[name + " +"] = ax_hi;
   m_axes[name + " -"] = ax_lo;
-  AddAnalogInputs(ax_lo, ax_hi);
+  AddFullAnalogSurfaceInputs(ax_lo, ax_hi);
 }
 
 void PipeDevice::SetAxis(const std::string& entry, double value)

@@ -5,8 +5,8 @@
 
 #include <algorithm>
 #include <map>
+#include <utility>
 
-#include "Common/Assert.h"
 #include "Common/Logging/Log.h"
 #include "Common/StringUtil.h"
 #include "Core/HW/Memmap.h"
@@ -98,8 +98,8 @@ bool IOCtlVRequest::HasNumberOfValidVectors(const size_t in_count, const size_t 
     return false;
 
   auto IsValidVector = [](const auto& vector) { return vector.size == 0 || vector.address != 0; };
-  return std::all_of(in_vectors.begin(), in_vectors.end(), IsValidVector) &&
-         std::all_of(io_vectors.begin(), io_vectors.end(), IsValidVector);
+  return std::ranges::all_of(in_vectors, IsValidVector) &&
+         std::ranges::all_of(io_vectors, IsValidVector);
 }
 
 void IOCtlRequest::Log(std::string_view device_name, Common::Log::LogType type,
@@ -153,8 +153,8 @@ void IOCtlVRequest::DumpUnknown(Core::System& system, const std::string& descrip
   Dump(system, "Unknown IOCtlV - " + description, type, level);
 }
 
-Device::Device(Kernel& ios, const std::string& device_name, const DeviceType type)
-    : m_ios(ios), m_name(device_name), m_device_type(type)
+Device::Device(Kernel& ios, std::string device_name, const DeviceType type)
+    : m_ios(ios), m_name(std::move(device_name)), m_device_type(type)
 {
 }
 

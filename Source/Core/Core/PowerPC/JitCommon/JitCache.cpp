@@ -8,13 +8,16 @@
 #include <cstring>
 #include <functional>
 #include <map>
+#include <ranges>
 #include <set>
+#include <span>
 #include <utility>
 
 #include "Common/CommonTypes.h"
 #include "Common/JitRegister.h"
 #include "Core/Config/MainSettings.h"
 #include "Core/Core.h"
+#include "Core/Host.h"
 #include "Core/PowerPC/JitCommon/JitBase.h"
 #include "Core/PowerPC/MMU.h"
 #include "Core/PowerPC/PPCSymbolDB.h"
@@ -28,8 +31,7 @@ using namespace Gen;
 
 bool JitBlock::OverlapsPhysicalRange(u32 address, u32 length) const
 {
-  return physical_addresses.lower_bound(address) !=
-         physical_addresses.lower_bound(address + length);
+  return physical_addresses.overlaps(address, address + length);
 }
 
 void JitBlock::ProfileData::BeginProfiling(ProfileData* data)
@@ -57,7 +59,7 @@ void JitBaseBlockCache::Init()
   m_entry_points_ptr = nullptr;
 #ifdef _ARCH_64
   if (Config::Get(Config::MAIN_LARGE_ENTRY_POINTS_MAP))
-    m_entry_points_ptr = reinterpret_cast<u8**>(m_entry_points_arena.Create(FAST_BLOCK_MAP_SIZE));
+    m_entry_points_ptr = static_cast<u8**>(m_entry_points_arena.Create(FAST_BLOCK_MAP_SIZE));
 #endif
 
   Clear();
@@ -111,10 +113,20 @@ JitBlock** JitBaseBlockCache::GetFastBlockMapFallback()
 }
 
 void JitBaseBlockCache::RunOnBlocks(const Core::CPUThreadGuard&,
-                                    std::function<void(const JitBlock&)> f) const
+                                    const std::function<void(const JitBlock&)>& f) const
 {
   for (const auto& e : block_map)
     f(e.second);
+}
+
+void JitBaseBlockCache::WipeBlockProfilingData(const Core::CPUThreadGuard&)
+{
+  for (const auto& kv : block_map)
+  {
+    if (JitBlock::ProfileData* const profile_data = kv.second.profile_data.get())
+      *profile_data = {};
+  }
+  Host_JitProfileDataWiped();
 }
 
 JitBlock* JitBaseBlockCache::AllocateBlock(u32 em_address)
@@ -130,7 +142,8 @@ JitBlock* JitBaseBlockCache::AllocateBlock(u32 em_address)
 }
 
 void JitBaseBlockCache::FinalizeBlock(JitBlock& block, bool block_link,
-                                      const std::set<u32>& physical_addresses)
+                                      const PPCAnalyst::CodeBlock& code_block,
+                                      const PPCAnalyst::CodeBuffer& code_buffer)
 {
   size_t index = FastLookupIndexForAddress(block.effectiveAddress, block.feature_flags);
   if (m_entry_points_ptr)
@@ -144,13 +157,26 @@ void JitBaseBlockCache::FinalizeBlock(JitBlock& block, bool block_link,
   }
   block.fast_block_map_index = index;
 
-  block.physical_addresses = physical_addresses;
+  block.physical_addresses = code_block.m_physical_addresses;
 
-  u32 range_mask = ~(BLOCK_RANGE_MAP_ELEMENTS - 1);
-  for (u32 addr : physical_addresses)
+  block.originalSize = code_block.m_num_instructions;
+  if (m_jit.IsDebuggingEnabled())
   {
-    valid_block.Set(addr / 32);
-    block_range_map[addr & range_mask].insert(&block);
+    // TODO C++23: Can do this all in one statement with `std::vector::assign_range`.
+    const std::ranges::transform_view original_buffer_transform_view{
+        std::span{code_buffer.data(), block.originalSize},
+        [](const PPCAnalyst::CodeOp& op) { return std::make_pair(op.address, op.inst); }};
+    block.original_buffer.assign(original_buffer_transform_view.begin(),
+                                 original_buffer_transform_view.end());
+  }
+
+  for (auto [range_start, range_end] : block.physical_addresses)
+  {
+    for (u32 i = range_start & ~31; i < range_end; i += 32)
+      valid_block.Set(i / 32);
+
+    for (u32 i = range_start & BLOCK_RANGE_MAP_MASK; i < range_end; i += BLOCK_RANGE_SIZE)
+      block_range_map[i].insert(&block);
   }
 
   if (block_link)
@@ -163,17 +189,18 @@ void JitBaseBlockCache::FinalizeBlock(JitBlock& block, bool block_link,
     LinkBlock(block);
   }
 
-  Common::Symbol* symbol = nullptr;
+  const Common::Symbol* symbol = nullptr;
   if (Common::JitRegister::IsEnabled() &&
       (symbol = m_jit.m_ppc_symbol_db.GetSymbolFromAddr(block.effectiveAddress)) != nullptr)
   {
-    Common::JitRegister::Register(block.normalEntry, block.codeSize, "JIT_PPC_{}_{:08x}",
-                                  symbol->function_name.c_str(), block.physicalAddress);
+    Common::JitRegister::Register(block.normalEntry, block.near_end - block.normalEntry,
+                                  "JIT_PPC_{}_{:08x}", symbol->function_name,
+                                  block.physicalAddress);
   }
   else
   {
-    Common::JitRegister::Register(block.normalEntry, block.codeSize, "JIT_PPC_{:08x}",
-                                  block.physicalAddress);
+    Common::JitRegister::Register(block.normalEntry, block.near_end - block.normalEntry,
+                                  "JIT_PPC_{:08x}", block.physicalAddress);
   }
 }
 
@@ -324,8 +351,7 @@ void JitBaseBlockCache::InvalidateICacheInternal(u32 physical_address, u32 addre
 void JitBaseBlockCache::ErasePhysicalRange(u32 address, u32 length)
 {
   // Iterate over all macro blocks which overlap the given range.
-  u32 range_mask = ~(BLOCK_RANGE_MAP_ELEMENTS - 1);
-  auto start = block_range_map.lower_bound(address & range_mask);
+  auto start = block_range_map.lower_bound(address & BLOCK_RANGE_MAP_MASK);
   auto end = block_range_map.lower_bound(address + length);
   while (start != end)
   {
@@ -338,9 +364,15 @@ void JitBaseBlockCache::ErasePhysicalRange(u32 address, u32 length)
       {
         // If the block overlaps, also remove all other occupied slots in the other macro blocks.
         // This will leak empty macro blocks, but they may be reused or cleared later on.
-        for (u32 addr : block->physical_addresses)
-          if ((addr & range_mask) != start->first)
-            block_range_map[addr & range_mask].erase(block);
+        for (auto [range_start, range_end] : block->physical_addresses)
+        {
+          DEBUG_ASSERT(range_start != range_end);
+          for (u32 i = range_start & BLOCK_RANGE_MAP_MASK; i < range_end; i += BLOCK_RANGE_SIZE)
+          {
+            if (i != start->first)
+              block_range_map[i].erase(block);
+          }
+        }
 
         // And remove the block.
         DestroyBlock(*block);
@@ -368,6 +400,26 @@ void JitBaseBlockCache::ErasePhysicalRange(u32 address, u32 length)
     else
       start++;
   }
+}
+
+void JitBaseBlockCache::EraseSingleBlock(const JitBlock& block)
+{
+  const auto equal_range = block_map.equal_range(block.physicalAddress);
+  const auto block_map_iter = std::ranges::find(equal_range.first, equal_range.second, &block,
+                                                [](const auto& kv) { return &kv.second; });
+  if (block_map_iter == equal_range.second) [[unlikely]]
+    return;
+
+  JitBlock& mutable_block = block_map_iter->second;
+
+  for (auto [range_start, range_end] : mutable_block.physical_addresses)
+  {
+    for (u32 i = range_start & BLOCK_RANGE_MAP_MASK; i < range_end; i += BLOCK_RANGE_SIZE)
+      block_range_map[i].erase(&mutable_block);
+  }
+
+  DestroyBlock(mutable_block);
+  block_map.erase(block_map_iter);  // The original JitBlock reference is now dangling.
 }
 
 u32* JitBaseBlockCache::GetBlockBitSet() const

@@ -195,19 +195,20 @@ void WatchWidget::Update()
 
     QBrush brush = QPalette().brush(QPalette::Text);
 
-    if (!Core::IsRunning(m_system) || !PowerPC::MMU::HostIsRAMAddress(guard, entry.address))
+    const bool core_is_running = Core::IsRunning(m_system);
+    if (!core_is_running || !PowerPC::MMU::HostIsRAMAddress(guard, entry.address))
       brush.setColor(Qt::red);
 
-    if (Core::IsRunning(m_system))
+    if (core_is_running)
     {
       if (PowerPC::MMU::HostIsRAMAddress(guard, entry.address))
       {
-        hex->setText(QStringLiteral("%1").arg(PowerPC::MMU::HostRead_U32(guard, entry.address), 8,
+        hex->setText(QStringLiteral("%1").arg(PowerPC::MMU::HostRead<u32>(guard, entry.address), 8,
                                               16, QLatin1Char('0')));
-        decimal->setText(QString::number(PowerPC::MMU::HostRead_U32(guard, entry.address)));
+        decimal->setText(QString::number(PowerPC::MMU::HostRead<u32>(guard, entry.address)));
         string->setText(
             QString::fromStdString(PowerPC::MMU::HostGetString(guard, entry.address, 32)));
-        floatValue->setText(QString::number(PowerPC::MMU::HostRead_F32(guard, entry.address)));
+        floatValue->setText(QString::number(PowerPC::MMU::HostRead<float>(guard, entry.address)));
         lockValue->setCheckState(entry.locked ? Qt::Checked : Qt::Unchecked);
       }
     }
@@ -424,7 +425,7 @@ void WatchWidget::OnItemChanged(QTableWidgetItem* item)
         }
         else
         {
-          PowerPC::MMU::HostWrite_U32(guard, value, debug_interface.GetWatch(row).address);
+          PowerPC::MMU::HostWrite<u32>(guard, value, debug_interface.GetWatch(row).address);
         }
       }
       else
@@ -480,7 +481,7 @@ void WatchWidget::DeleteSelectedWatches()
     }
 
     // Sort greatest to smallest, so we don't stomp on existing indices
-    std::sort(row_indices.begin(), row_indices.end(), std::greater{});
+    std::ranges::sort(row_indices, std::ranges::greater{});
     for (const int row : row_indices)
     {
       DeleteWatch(guard, row);
@@ -517,7 +518,7 @@ void WatchWidget::ShowInMemory(int row)
   emit ShowMemory(m_system.GetPowerPC().GetDebugInterface().GetWatch(row).address);
 }
 
-void WatchWidget::AddWatch(QString name, u32 addr)
+void WatchWidget::AddWatch(const QString& name, u32 addr)
 {
   m_system.GetPowerPC().GetDebugInterface().SetWatch(addr, name.toStdString());
   Update();

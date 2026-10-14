@@ -12,7 +12,6 @@
 
 #include "Common/Align.h"
 #include "Common/Crypto/SHA1.h"
-#include "Common/EnumUtils.h"
 #include "Common/Logging/Log.h"
 #include "Common/NandPaths.h"
 #include "Core/CommonTitles.h"
@@ -34,7 +33,7 @@ static ReturnCode WriteTicket(FS::FileSystem* fs, const ES::TicketReader& ticket
   fs->CreateFullPath(PID_KERNEL, PID_KERNEL, path, 0, ticket_modes);
   const auto file = fs->CreateAndOpenFile(PID_KERNEL, PID_KERNEL, path, ticket_modes);
   if (!file)
-    return FS::ConvertResult(file.Error());
+    return FS::ConvertResult(file.error());
 
   const std::vector<u8>& raw_ticket = ticket.GetBytes();
   return file->Write(raw_ticket.data(), raw_ticket.size()) ? IPC_SUCCESS : ES_EIO;
@@ -73,7 +72,7 @@ ReturnCode ESCore::ImportTicket(const std::vector<u8>& ticket_bytes,
     if (ret < 0)
     {
       ERROR_LOG_FMT(IOS_ES, "ImportTicket: Failed to unpersonalise ticket for {:016x} ({})",
-                    ticket.GetTitleId(), Common::ToUnderlying(ret));
+                    ticket.GetTitleId(), std::to_underlying(ret));
       return ret;
     }
   }
@@ -163,7 +162,7 @@ ReturnCode ESCore::ImportTmd(Context& context, const std::vector<u8>& tmd_bytes,
   if (ret != IPC_SUCCESS)
   {
     ERROR_LOG_FMT(IOS_ES, "ImportTmd: VerifyContainer failed with error {}",
-                  Common::ToUnderlying(ret));
+                  std::to_underlying(ret));
     return ret;
   }
 
@@ -177,8 +176,7 @@ ReturnCode ESCore::ImportTmd(Context& context, const std::vector<u8>& tmd_bytes,
                       &context.title_import_export.key_handle);
   if (ret != IPC_SUCCESS)
   {
-    ERROR_LOG_FMT(IOS_ES, "ImportTmd: InitBackupKey failed with error {}",
-                  Common::ToUnderlying(ret));
+    ERROR_LOG_FMT(IOS_ES, "ImportTmd: InitBackupKey failed with error {}", std::to_underlying(ret));
     return ret;
   }
 
@@ -374,7 +372,7 @@ IPCReply ESDevice::ImportContentData(Context& context, const IOCtlVRequest& requ
   return IPCReply(m_core.ImportContentData(context, content_fd, data_start, data_size));
 }
 
-static bool CheckIfContentHashMatches(const std::vector<u8>& content, const ES::Content& info)
+static bool CheckIfContentHashMatches(std::span<const u8> content, const ES::Content& info)
 {
   return Common::SHA1::CalculateDigest(content.data(), info.size) == info.sha1;
 }
@@ -464,7 +462,7 @@ static bool HasAllRequiredContents(Kernel& ios, const ES::TMDReader& tmd)
   const u64 title_id = tmd.GetTitleId();
   const std::vector<ES::Content> contents = tmd.GetContents();
   const ES::SharedContentMap shared_content_map{ios.GetFSCore()};
-  return std::all_of(contents.cbegin(), contents.cend(), [&](const ES::Content& content) {
+  return std::ranges::all_of(contents, [&](const ES::Content& content) {
     if (content.IsOptional())
       return true;
 
@@ -474,7 +472,7 @@ static bool HasAllRequiredContents(Kernel& ios, const ES::TMDReader& tmd)
     // Note: the import hasn't been finalised yet, so the whole title directory
     // is still in /import, not /title.
     const std::string path = GetImportContentPath(title_id, content.id);
-    return ios.GetFS()->GetMetadata(PID_KERNEL, PID_KERNEL, path).Succeeded();
+    return ios.GetFS()->GetMetadata(PID_KERNEL, PID_KERNEL, path).has_value();
   });
 }
 
@@ -642,7 +640,7 @@ ReturnCode ESCore::DeleteTitleContent(u64 title_id) const
   const std::string content_dir = Common::GetTitleContentPath(title_id);
   const auto files = m_ios.GetFS()->ReadDirectory(PID_KERNEL, PID_KERNEL, content_dir);
   if (!files)
-    return FS::ConvertResult(files.Error());
+    return FS::ConvertResult(files.error());
 
   for (const std::string& file_name : *files)
   {
@@ -817,7 +815,7 @@ ReturnCode ESCore::ExportContentData(Context& context, u32 content_fd, u8* data,
   if (encrypt_ret != IPC_SUCCESS)
     return encrypt_ret;
 
-  std::copy(output.cbegin(), output.cend(), data);
+  std::ranges::copy(output, data);
   return IPC_SUCCESS;
 }
 
@@ -878,7 +876,7 @@ ReturnCode ESCore::DeleteSharedContent(const std::array<u8, 20>& sha1) const
 
   // Check whether the shared content is used by a system title.
   const std::vector<u64> titles = GetInstalledTitles();
-  const bool is_used_by_system_title = std::any_of(titles.begin(), titles.end(), [&](u64 id) {
+  const bool is_used_by_system_title = std::ranges::any_of(titles, [&](u64 id) {
     if (!ES::IsTitleType(id, ES::TitleType::System))
       return false;
 
@@ -887,8 +885,8 @@ ReturnCode ESCore::DeleteSharedContent(const std::array<u8, 20>& sha1) const
       return true;
 
     const auto contents = tmd.GetContents();
-    return std::any_of(contents.begin(), contents.end(),
-                       [&sha1](const auto& content) { return content.sha1 == sha1; });
+    return std::ranges::any_of(contents,
+                               [&sha1](const auto& content) { return content.sha1 == sha1; });
   });
 
   // Any shared content used by a system title cannot be deleted.

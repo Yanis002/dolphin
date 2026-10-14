@@ -21,7 +21,7 @@
 #include "Common/Align.h"
 #include "Common/Assert.h"
 #include "Common/CommonTypes.h"
-#include "Common/EnumUtils.h"
+#include "Common/Contains.h"
 #include "Common/FileUtil.h"
 #include "Common/HttpRequest.h"
 #include "Common/Logging/Log.h"
@@ -42,6 +42,7 @@
 #include "Core/SysConf.h"
 #include "Core/System.h"
 #include "DiscIO/DiscExtractor.h"
+#include "DiscIO/DiscUtils.h"
 #include "DiscIO/Enums.h"
 #include "DiscIO/Filesystem.h"
 #include "DiscIO/VolumeDisc.h"
@@ -78,12 +79,12 @@ static bool ImportWAD(IOS::HLE::Kernel& ios, const DiscIO::VolumeWAD& wad,
     if (ret != IOS::HLE::IOSC_FAIL_CHECKVALUE)
     {
       PanicAlertFmtT("WAD installation failed: Could not initialise title import (error {0}).",
-                     Common::ToUnderlying(ret));
+                     std::to_underlying(ret));
     }
     return false;
   }
 
-  const bool contents_imported = [&]() {
+  const bool contents_imported = [&] {
     const u64 title_id = tmd.GetTitleId();
     for (const IOS::ES::Content& content : tmd.GetContents())
     {
@@ -223,15 +224,14 @@ bool IsTitleInstalled(u64 title_id)
   // Since this isn't IOS and we only need a simple way to figure out if a title is installed,
   // we make the (reasonable) assumption that having more than just the TMD in the content
   // directory means that the title is installed.
-  return std::any_of(entries->begin(), entries->end(),
-                     [](const std::string& file) { return file != "title.tmd"; });
+  return std::ranges::any_of(*entries, [](const std::string& file) { return file != "title.tmd"; });
 }
 
 bool IsTMDImported(IOS::HLE::FS::FileSystem& fs, u64 title_id)
 {
   const auto entries = fs.ReadDirectory(0, 0, Common::GetTitleContentPath(title_id));
-  return entries && std::any_of(entries->begin(), entries->end(),
-                                [](const std::string& file) { return file == "title.tmd"; });
+  return entries &&
+         std::ranges::any_of(*entries, [](const std::string& file) { return file == "title.tmd"; });
 }
 
 IOS::ES::TMDReader FindBackupTMD(IOS::HLE::FS::FileSystem& fs, u64 title_id)
@@ -329,13 +329,13 @@ std::string SystemUpdater::GetDeviceId()
   u32 ios_device_id;
   if (m_ios.GetESCore().GetDeviceId(&ios_device_id) < 0)
     return "";
-  return std::to_string((u64(1) << 32) | ios_device_id);
+  return std::to_string((1ULL << 32) | ios_device_id);
 }
 
 class OnlineSystemUpdater final : public SystemUpdater
 {
 public:
-  OnlineSystemUpdater(UpdateCallback update_callback, const std::string& region);
+  OnlineSystemUpdater(UpdateCallback update_callback, std::string region);
   UpdateResult DoOnlineUpdate();
 
 private:
@@ -346,7 +346,7 @@ private:
   };
 
   Response GetSystemTitles();
-  Response ParseTitlesResponse(const std::vector<u8>& response) const;
+  Response ParseTitlesResponse(std::span<const u8> response) const;
   bool ShouldInstallTitle(const TitleInfo& title);
 
   UpdateResult InstallTitleFromNUS(const std::string& prefix_url, const TitleInfo& title,
@@ -365,13 +365,13 @@ private:
   Common::HttpRequest m_http{std::chrono::minutes{3}};
 };
 
-OnlineSystemUpdater::OnlineSystemUpdater(UpdateCallback update_callback, const std::string& region)
-    : m_update_callback(std::move(update_callback)), m_requested_region(region)
+OnlineSystemUpdater::OnlineSystemUpdater(UpdateCallback update_callback, std::string region)
+    : m_update_callback(std::move(update_callback)), m_requested_region(std::move(region))
 {
 }
 
 OnlineSystemUpdater::Response
-OnlineSystemUpdater::ParseTitlesResponse(const std::vector<u8>& response) const
+OnlineSystemUpdater::ParseTitlesResponse(std::span<const u8> response) const
 {
   pugi::xml_document doc;
   pugi::xml_parse_result result = doc.load_buffer(response.data(), response.size());
@@ -467,12 +467,7 @@ OnlineSystemUpdater::Response OnlineSystemUpdater::GetSystemTitles()
     // but the backing data CDN is still active and accessible from other URLs. We take advantage
     // of this by hosting our own NetUpdateSOAP endpoint which serves the correct list of titles to
     // install along with URLs for the Wii U CDN.
-#ifdef ANDROID
-    // HTTPS is unsupported on Android (https://bugs.dolphin-emu.org/issues/11772).
-    base_url = "http://fakenus.dolphin-emu.org";
-#else
     base_url = "https://fakenus.dolphin-emu.org";
-#endif
   }
 
   const std::string url = fmt::format("{}/nus/services/NetUpdateSOAP", base_url);
@@ -550,7 +545,7 @@ UpdateResult OnlineSystemUpdater::InstallTitleFromNUS(const std::string& prefix_
   auto& es = m_ios.GetESCore();
   if ((ret = es.ImportTicket(ticket.first, ticket.second)) < 0)
   {
-    ERROR_LOG_FMT(CORE, "Failed to import ticket: error {}", Common::ToUnderlying(ret));
+    ERROR_LOG_FMT(CORE, "Failed to import ticket: error {}", std::to_underlying(ret));
     return UpdateResult::ImportFailed;
   }
 
@@ -582,19 +577,17 @@ UpdateResult OnlineSystemUpdater::InstallTitleFromNUS(const std::string& prefix_
   IOS::HLE::ESCore::Context context;
   if ((ret = es.ImportTitleInit(context, tmd.first.GetBytes(), tmd.second)) < 0)
   {
-    ERROR_LOG_FMT(CORE, "Failed to initialise title import: error {}", Common::ToUnderlying(ret));
+    ERROR_LOG_FMT(CORE, "Failed to initialise title import: error {}", std::to_underlying(ret));
     return UpdateResult::ImportFailed;
   }
 
   // Now download and install contents listed in the TMD.
   const std::vector<IOS::ES::Content> stored_contents = es.GetStoredContentsFromTMD(tmd.first);
-  const UpdateResult import_result = [&]() {
+  const UpdateResult import_result = [&] {
     for (const IOS::ES::Content& content : tmd.first.GetContents())
     {
-      const bool is_already_installed = std::find_if(stored_contents.begin(), stored_contents.end(),
-                                                     [&content](const auto& stored_content) {
-                                                       return stored_content.id == content.id;
-                                                     }) != stored_contents.end();
+      const bool is_already_installed =
+          Common::Contains(stored_contents, content.id, &IOS::ES::Content::id);
 
       // Do skip what is already installed on the NAND.
       if (is_already_installed)
@@ -603,7 +596,7 @@ UpdateResult OnlineSystemUpdater::InstallTitleFromNUS(const std::string& prefix_
       if ((ret = es.ImportContentBegin(context, title.id, content.id)) < 0)
       {
         ERROR_LOG_FMT(CORE, "Failed to initialise import for content {:08x}: error {}", content.id,
-                      Common::ToUnderlying(ret));
+                      std::to_underlying(ret));
         return UpdateResult::ImportFailed;
       }
 
@@ -628,7 +621,7 @@ UpdateResult OnlineSystemUpdater::InstallTitleFromNUS(const std::string& prefix_
   if ((all_contents_imported && (ret = es.ImportTitleDone(context)) < 0) ||
       (!all_contents_imported && (ret = es.ImportTitleCancel(context)) < 0))
   {
-    ERROR_LOG_FMT(CORE, "Failed to finalise title import: error {}", Common::ToUnderlying(ret));
+    ERROR_LOG_FMT(CORE, "Failed to finalise title import: error {}", std::to_underlying(ret));
     return UpdateResult::ImportFailed;
   }
 
@@ -750,10 +743,9 @@ UpdateResult DiscSystemUpdater::DoDiscUpdate()
     return UpdateResult::RegionMismatch;
 
   const auto partitions = m_volume->GetPartitions();
-  const auto update_partition =
-      std::find_if(partitions.cbegin(), partitions.cend(), [&](const DiscIO::Partition& partition) {
-        return m_volume->GetPartitionType(partition) == 1u;
-      });
+  const auto update_partition = std::ranges::find(
+      partitions, DiscIO::PARTITION_UPDATE,
+      [&](const DiscIO::Partition& partition) { return m_volume->GetPartitionType(partition); });
 
   if (update_partition == partitions.cend())
   {
@@ -947,8 +939,8 @@ static NANDCheckResult CheckNAND(IOS::HLE::Kernel& ios, bool repair)
     }
 
     const auto installed_contents = es.GetStoredContentsFromTMD(tmd);
-    const bool is_installed = std::any_of(installed_contents.begin(), installed_contents.end(),
-                                          [](const auto& content) { return !content.IsShared(); });
+    const bool is_installed = std::ranges::any_of(
+        installed_contents, [](const auto& content) { return !content.IsShared(); });
 
     if (is_installed && installed_contents != tmd.GetContents() &&
         (tmd.GetTitleFlags() & IOS::ES::TitleFlags::TITLE_TYPE_DATA) == 0)

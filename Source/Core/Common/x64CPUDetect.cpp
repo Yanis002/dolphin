@@ -14,11 +14,13 @@
 #include <thread>
 
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 
 #include "Common/CommonTypes.h"
-#include "Common/Intrinsics.h"
-#include "Common/MsgHandler.h"
 #include "Common/StringUtil.h"
+#ifdef _WIN32
+#include "Common/MsgHandler.h"
+#endif
 
 #ifndef _WIN32
 
@@ -275,5 +277,5 @@ std::string CPUInfo::Summarize()
   if (bSHA2)
     sum.push_back("SHA2");
 
-  return JoinStrings(sum, ",");
+  return fmt::to_string(fmt::join(sum, ","));
 }

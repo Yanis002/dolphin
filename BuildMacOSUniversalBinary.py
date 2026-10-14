@@ -57,12 +57,8 @@ DEFAULT_CONFIG = {
     # SHA checksum to verify the integrity of the app. This doesn't
     # protect against malicious actors, but it does protect against
     # running corrupted binaries and allows for access to the extended
-    # permisions needed for ARM builds
+    # permissions needed for ARM builds
     "codesign_identity":  "-",
-
-    # Minimum macOS version for each architecture slice
-    "arm64_mac_os_deployment_target":  "11.0.0",
-    "x86_64_mac_os_deployment_target": "10.15.0",
 
     # CMake Generator to use for building
     "generator": "Unix Makefiles",
@@ -73,11 +69,14 @@ DEFAULT_CONFIG = {
     # Whether our autoupdate functionality is enabled or not.
     "autoupdate": True,
 
+    # Whether CCache is used for the build or not.
+    "ccache": False,
+
     # The distributor for this build.
     "distributor": "None"
 }
 
-# Architectures to build for. This is explicity left out of the command line
+# Architectures to build for. This is explicitly left out of the command line
 # config options for several reasons:
 # 1) Adding new architectures will generally require more code changes
 # 2) Single architecture builds should utilize the normal generated cmake
@@ -124,6 +123,12 @@ def parse_args(conf=DEFAULT_CONFIG):
         default=conf["autoupdate"])
 
     parser.add_argument(
+        "--ccache",
+        help="Enables CCache",
+        action=argparse.BooleanOptionalAction,
+        default=conf["ccache"])
+
+    parser.add_argument(
         "--distributor",
         help="Sets the distributor for this build",
         default=conf["distributor"])
@@ -145,11 +150,6 @@ def parse_args(conf=DEFAULT_CONFIG):
              f"--{arch}_qt5_path",
              help=f"Install path for {arch} qt5 libraries",
              default=conf[arch+"_qt5_path"])
-
-        parser.add_argument(
-             f"--{arch}_mac_os_deployment_target",
-             help=f"Deployment architecture for {arch} slice",
-             default=conf[arch+"_mac_os_deployment_target"])
 
     return vars(parser.parse_args())
 
@@ -297,14 +297,15 @@ def build(config):
                 "-DCMAKE_PREFIX_PATH="+prefix_path,
                 "-DCMAKE_SYSTEM_PROCESSOR="+arch,
                 "-DCMAKE_IGNORE_PATH="+ignore_path,
-                "-DCMAKE_OSX_DEPLOYMENT_TARGET="
-                + config[arch+"_mac_os_deployment_target"],
+                "-DCMAKE_OSX_DEPLOYMENT_TARGET=11.0.0",
                 "-DMACOS_CODE_SIGNING_IDENTITY="
                 + config["codesign_identity"],
                 '-DMACOS_CODE_SIGNING="ON"',
                 "-DENABLE_AUTOUPDATE="
                 + python_to_cmake_bool(config["autoupdate"]),
                 '-DDISTRIBUTOR=' + config['distributor'],
+                # Distributable bundles need to be postprocessed to embed dependencies
+                "-DPOSTPROCESS_BUNDLE=ON",
                 # Always use libraries from Externals to prevent any libraries
                 # installed by Homebrew from leaking in to the app
                 "-DUSE_SYSTEM_LIBS=OFF",
@@ -312,7 +313,9 @@ def build(config):
                 # iconv, bzip2, and curl
                 "-DUSE_SYSTEM_ICONV=ON",
                 "-DUSE_SYSTEM_BZIP2=ON",
-                "-DUSE_SYSTEM_CURL=ON"
+                "-DUSE_SYSTEM_CURL=ON",
+                "-DENABLE_CCACHE="
+                + python_to_cmake_bool(config["ccache"]),
             ],
             env=env, cwd=arch)
 

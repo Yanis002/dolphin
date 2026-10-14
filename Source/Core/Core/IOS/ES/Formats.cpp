@@ -10,6 +10,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -20,7 +21,7 @@
 #include "Common/CommonTypes.h"
 #include "Common/Crypto/SHA1.h"
 #include "Common/Logging/Log.h"
-#include "Common/NandPaths.h"
+#include "Common/Projection.h"
 #include "Common/StringUtil.h"
 #include "Common/Swap.h"
 #include "Core/CommonTitles.h"
@@ -71,11 +72,6 @@ bool operator==(const Content& lhs, const Content& rhs)
 {
   auto fields = [](const Content& c) { return std::tie(c.id, c.index, c.type, c.size, c.sha1); };
   return fields(lhs) == fields(rhs);
-}
-
-bool operator!=(const Content& lhs, const Content& rhs)
-{
-  return !operator==(lhs, rhs);
 }
 
 SignedBlobReader::SignedBlobReader(std::vector<u8> bytes) : m_bytes(std::move(bytes))
@@ -198,7 +194,7 @@ void SignedBlobReader::DoState(PointerWrap& p)
 
 bool IsValidTMDSize(size_t size)
 {
-  return size <= 0x49e4;
+  return size >= sizeof(TMDHeader) && size <= 0x49e4;
 }
 
 TMDReader::TMDReader(std::vector<u8> bytes) : SignedBlobReader(std::move(bytes))
@@ -302,7 +298,7 @@ std::string TMDReader::GetGameID() const
   std::memcpy(game_id, m_bytes.data() + offsetof(TMDHeader, title_id) + 4, 4);
   std::memcpy(game_id + 4, m_bytes.data() + offsetof(TMDHeader, group_id), 2);
 
-  if (std::all_of(std::begin(game_id), std::end(game_id), Common::IsPrintableCharacter))
+  if (std::ranges::all_of(game_id, Common::IsAlnum))
     return std::string(game_id, sizeof(game_id));
 
   return fmt::format("{:016x}", GetTitleId());
@@ -313,7 +309,7 @@ std::string TMDReader::GetGameTDBID() const
   const u8* begin = m_bytes.data() + offsetof(TMDHeader, title_id) + 4;
   const u8* end = begin + 4;
 
-  if (std::all_of(begin, end, Common::IsPrintableCharacter))
+  if (std::all_of(begin, end, Common::IsAlnum))
     return std::string(begin, end);
 
   return fmt::format("{:016x}", GetTitleId());
@@ -326,7 +322,7 @@ u16 TMDReader::GetNumContents() const
 
 bool TMDReader::GetContent(u16 index, Content* content) const
 {
-  if (index >= GetNumContents())
+  if (!IsValid() || index >= GetNumContents())
   {
     return false;
   }
@@ -343,7 +339,7 @@ bool TMDReader::GetContent(u16 index, Content* content) const
 
 std::vector<Content> TMDReader::GetContents() const
 {
-  std::vector<Content> contents(GetNumContents());
+  std::vector<Content> contents(IsValid() ? GetNumContents() : 0);
   for (size_t i = 0; i < contents.size(); ++i)
     GetContent(static_cast<u16>(i), &contents[i]);
   return contents;
@@ -535,7 +531,7 @@ HLE::ReturnCode TicketReader::Unpersonalise(HLE::IOSC& iosc)
                      sizeof(Ticket::title_key), key.data(), PID_ES);
   // Finally, IOS copies the decrypted title key back to the ticket buffer.
   if (ret == IPC_SUCCESS)
-    std::copy(key.cbegin(), key.cend(), ticket_begin + offsetof(Ticket, title_key));
+    std::ranges::copy(key, ticket_begin + offsetof(Ticket, title_key));
 
   return ret;
 }
@@ -575,12 +571,11 @@ SharedContentMap::~SharedContentMap() = default;
 std::optional<std::string>
 SharedContentMap::GetFilenameFromSHA1(const std::array<u8, 20>& sha1) const
 {
-  const auto it = std::find_if(m_entries.begin(), m_entries.end(),
-                               [&sha1](const auto& entry) { return entry.sha1 == sha1; });
+  const auto it = std::ranges::find(m_entries, sha1, &Entry::sha1);
   if (it == m_entries.end())
     return {};
 
-  const std::string id_string(it->id.begin(), it->id.end());
+  const std::string_view id_string(reinterpret_cast<const char*>(it->id.data()), it->id.size());
   return fmt::format("/shared1/{}.app", id_string);
 }
 
@@ -596,20 +591,22 @@ std::vector<std::array<u8, 20>> SharedContentMap::GetHashes() const
 
 std::string SharedContentMap::AddSharedContent(const std::array<u8, 20>& sha1)
 {
-  auto filename = GetFilenameFromSHA1(sha1);
-  if (filename)
-    return *filename;
+  if (auto filename = GetFilenameFromSHA1(sha1))
+    return *std::move(filename);
 
-  const std::string id = fmt::format("{:08x}", m_last_id);
-  Entry entry;
-  std::copy(id.cbegin(), id.cend(), entry.id.begin());
+  Entry& entry = m_entries.emplace_back();
+  static_assert(sizeof(m_last_id) == 4,
+                "'m_last_id' must be represented by 8 characters when formatted in hexadecimal.");
+  static_assert(std::tuple_size_v<decltype(entry.id)> == sizeof(m_last_id) * 2,
+                "'entry.id' must be a std::array capable of storing every nibble of 'm_last_id'.");
+  fmt::format_to(entry.id.data(), "{:08x}", m_last_id);
   entry.sha1 = sha1;
-  m_entries.push_back(entry);
 
   WriteEntries();
-  filename = fmt::format("/shared1/{}.app", id);
   m_last_id++;
-  return *filename;
+
+  const std::string_view id_string(reinterpret_cast<const char*>(entry.id.data()), entry.id.size());
+  return fmt::format("/shared1/{}.app", id_string);
 }
 
 bool SharedContentMap::DeleteSharedContent(const std::array<u8, 20>& sha1)
@@ -672,8 +669,7 @@ UIDSys::UIDSys(HLE::FSCore& fs_core) : m_fs{fs_core.GetFS()}
 
 u32 UIDSys::GetUIDFromTitle(u64 title_id) const
 {
-  const auto it = std::find_if(m_entries.begin(), m_entries.end(),
-                               [title_id](const auto& entry) { return entry.second == title_id; });
+  const auto it = std::ranges::find(m_entries, title_id, Common::Projection::Value{});
   return (it == m_entries.end()) ? 0 : it->first;
 }
 
@@ -726,7 +722,7 @@ CertReader::CertReader(std::vector<u8>&& bytes) : SignedBlobReader(std::move(byt
       {SignatureType::ECC, PublicKeyType::ECC, sizeof(CertECC)},
   }};
 
-  const auto info = std::find_if(types.cbegin(), types.cend(), [this](const CertStructInfo& entry) {
+  const auto info = std::ranges::find_if(types, [this](const CertStructInfo& entry) {
     return m_bytes.size() >= std::get<2>(entry) && std::get<0>(entry) == GetSignatureType() &&
            std::get<1>(entry) == GetPublicKeyType();
   });

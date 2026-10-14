@@ -11,17 +11,34 @@ import org.dolphinemu.dolphinemu.features.settings.model.Settings
  */
 interface SettingsActivityView {
     /**
+     * The query currently displayed in the settings search view.
+     */
+    val settingsSearchQuery: String
+
+    /**
+     * Whether the dedicated settings search screen is active.
+     */
+    val isSettingsSearchActive: Boolean
+
+    /**
      * Show a new SettingsFragment.
      *
      * @param menuTag    Identifier for the settings group that should be displayed.
      * @param addToStack Whether or not this fragment should replace a previous one.
      */
     fun showSettingsFragment(
-        menuTag: MenuTag,
-        extras: Bundle?,
-        addToStack: Boolean,
-        gameId: String
+        menuTag: MenuTag, extras: Bundle?, addToStack: Boolean, gameId: String
     )
+
+    /**
+     * Opens the settings screen containing a search result and scrolls to the result.
+     */
+    fun showSearchResult(menuTag: MenuTag, settingPosition: Int, gameId: String, extras: Bundle?)
+
+    /**
+     * Filters the root settings screen using the current search query.
+     */
+    fun filterSettings(query: String)
 
     /**
      * Shows a DialogFragment.
@@ -31,25 +48,16 @@ interface SettingsActivityView {
     fun showDialogFragment(fragment: DialogFragment)
 
     /**
-     * Called by a contained Fragment to get access to the Setting HashMap
-     * loaded from disk, so that each Fragment doesn't need to perform its own
-     * read operation.
-     *
-     * @return A possibly null HashMap of Settings.
+     * Identifies which set of settings is to be read from and written to.
      */
     val settings: Settings
 
     /**
-     * Called when an asynchronous load operation completes.
+     * Called when a Settings object becomes available.
      *
-     * @param settings The (possibly null) result of the ini load operation.
+     * @param settings The settings that this Activity should access.
      */
     fun onSettingsFileLoaded(settings: Settings)
-
-    /**
-     * Called when an asynchronous load operation fails.
-     */
-    fun onSettingsFileNotFound()
 
     /**
      * Display a popup text message on screen.
@@ -96,6 +104,11 @@ interface SettingsActivityView {
     fun hasMenuTagActionForValue(menuTag: MenuTag, value: Int): Boolean
 
     /**
+     * Returns the arguments used when opening a navigable setting's associated screen.
+     */
+    fun getMenuTagActionExtras(menuTag: MenuTag, value: Int): Bundle?
+
+    /**
      * Show loading dialog while loading the settings
      */
     fun showLoading()
@@ -111,9 +124,9 @@ interface SettingsActivityView {
     fun showGameIniJunkDeletionQuestion()
 
     /**
-     * Accesses the material toolbar layout and changes the title
+     * Updates the settings app bar as a single state change.
      */
-    fun setToolbarTitle(title: String)
+    fun setToolbarState(title: String, showHeadline: Boolean, showSearch: Boolean)
     /**
      * Returns whether the input mapping dialog should detect inputs from all devices,
      * not just the device configured for the controller.

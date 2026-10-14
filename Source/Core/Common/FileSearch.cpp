@@ -5,32 +5,24 @@
 
 #include <algorithm>
 #include <filesystem>
-#include <functional>
-#include <iterator>
 #include <system_error>
 
 #include "Common/CommonPaths.h"
 #include "Common/Logging/Log.h"
 #include "Common/StringUtil.h"
 
-#ifdef _MSC_VER
-#include <Windows.h>
-#else
-#ifdef ANDROID
+#ifdef _WIN32
+#include <windows.h>
+#elifdef ANDROID
 #include "jni/AndroidCommon/AndroidCommon.h"
-#endif
-
-#include <cstring>
-#include "Common/CommonFuncs.h"
-#include "Common/FileUtil.h"
 #endif
 
 namespace fs = std::filesystem;
 
 namespace Common
 {
-std::vector<std::string> DoFileSearch(const std::vector<std::string>& directories,
-                                      const std::vector<std::string>& exts, bool recursive)
+std::vector<std::string> DoFileSearch(std::span<const std::string_view> directories,
+                                      std::span<const std::string_view> exts, bool recursive)
 {
   const bool accept_all = exts.empty();
 
@@ -41,7 +33,7 @@ std::vector<std::string> DoFileSearch(const std::vector<std::string>& directorie
   // N.B. This avoids doing any copies
   auto ext_matches = [&native_exts](const fs::path& path) {
     const std::basic_string_view<fs::path::value_type> native_path = path.native();
-    return std::any_of(native_exts.cbegin(), native_exts.cend(), [&native_path](const auto& ext) {
+    return std::ranges::any_of(native_exts, [&native_path](const auto& ext) {
       const auto compare_len = ext.native().length();
       if (native_path.length() < compare_len)
         return false;
@@ -79,13 +71,13 @@ std::vector<std::string> DoFileSearch(const std::vector<std::string>& directorie
       std::error_code error;
       if (recursive)
       {
-        for (auto it = fs::recursive_directory_iterator(std::move(directory_path), error);
+        for (auto it = fs::recursive_directory_iterator(directory_path, error);
              it != fs::recursive_directory_iterator(); it.increment(error))
           add_filtered(*it);
       }
       else
       {
-        for (auto it = fs::directory_iterator(std::move(directory_path), error);
+        for (auto it = fs::directory_iterator(directory_path, error);
              it != fs::directory_iterator(); it.increment(error))
           add_filtered(*it);
       }
@@ -97,8 +89,9 @@ std::vector<std::string> DoFileSearch(const std::vector<std::string>& directorie
   // Remove duplicates (occurring because caller gave e.g. duplicate or overlapping directories -
   // not because std::filesystem returns duplicates). Also note that this pathname-based uniqueness
   // isn't as thorough as std::filesystem::equivalent.
-  std::sort(result.begin(), result.end());
-  result.erase(std::unique(result.begin(), result.end()), result.end());
+  std::ranges::sort(result);
+  const auto unique_result = std::ranges::unique(result);
+  result.erase(unique_result.begin(), unique_result.end());
 
   // Dolphin expects to be able to use "/" (DIR_SEP) everywhere.
   // std::filesystem uses the OS separator.
@@ -107,7 +100,7 @@ std::vector<std::string> DoFileSearch(const std::vector<std::string>& directorie
   if constexpr (os_separator != DIR_SEP_CHR)
   {
     for (auto& path : result)
-      std::replace(path.begin(), path.end(), '\\', DIR_SEP_CHR);
+      std::ranges::replace(path, '\\', DIR_SEP_CHR);
   }
 
   return result;

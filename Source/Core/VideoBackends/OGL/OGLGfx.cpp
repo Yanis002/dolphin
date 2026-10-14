@@ -5,9 +5,8 @@
 
 #include "Common/GL/GLContext.h"
 #include "Common/GL/GLExtensions/GLExtensions.h"
+#include "Common/GL/GLUtil.h"
 #include "Common/Logging/LogManager.h"
-
-#include "Core/Config/GraphicsSettings.h"
 
 #include "VideoBackends/OGL/OGLConfig.h"
 #include "VideoBackends/OGL/OGLPipeline.h"
@@ -18,7 +17,6 @@
 
 #include "VideoCommon/AsyncShaderCompiler.h"
 #include "VideoCommon/DriverDetails.h"
-#include "VideoCommon/OnScreenDisplay.h"
 #include "VideoCommon/Present.h"
 #include "VideoCommon/VideoConfig.h"
 
@@ -177,10 +175,10 @@ OGLGfx::OGLGfx(std::unique_ptr<GLContext> main_gl_context, float backbuffer_scal
   if (!DriverDetails::HasBug(DriverDetails::BUG_BROKEN_VSYNC))
     m_main_gl_context->SwapInterval(g_ActiveConfig.bVSyncActive);
 
-  if (g_ActiveConfig.backend_info.bSupportsClipControl)
+  if (g_backend_info.bSupportsClipControl)
     glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
 
-  if (g_ActiveConfig.backend_info.bSupportsDepthClamp)
+  if (g_backend_info.bSupportsDepthClamp)
   {
     glEnable(GL_CLIP_DISTANCE0);
     glEnable(GL_CLIP_DISTANCE1);
@@ -192,7 +190,7 @@ OGLGfx::OGLGfx(std::unique_ptr<GLContext> main_gl_context, float backbuffer_scal
   glGenFramebuffers(1, &m_shared_read_framebuffer);
   glGenFramebuffers(1, &m_shared_draw_framebuffer);
 
-  if (g_ActiveConfig.backend_info.bSupportsPrimitiveRestart)
+  if (g_backend_info.bSupportsPrimitiveRestart)
     GLUtil::EnablePrimitiveRestart(m_main_gl_context.get());
 
   UpdateActiveConfig();
@@ -231,14 +229,16 @@ OGLGfx::CreateFramebuffer(AbstractTexture* color_attachment, AbstractTexture* de
 }
 
 std::unique_ptr<AbstractShader>
-OGLGfx::CreateShaderFromSource(ShaderStage stage, std::string_view source, std::string_view name)
+OGLGfx::CreateShaderFromSource(ShaderStage stage, std::string_view source,
+                               VideoCommon::ShaderIncluder* shader_includer, std::string_view name)
 {
-  return OGLShader::CreateFromSource(stage, source, name);
+  return OGLShader::CreateFromSource(stage, source, shader_includer, name);
 }
 
-std::unique_ptr<AbstractShader>
-OGLGfx::CreateShaderFromBinary(ShaderStage stage, const void* data, size_t length,
-                               [[maybe_unused]] std::string_view name)
+std::unique_ptr<AbstractShader> OGLGfx::CreateShaderFromBinary(ShaderStage /* stage */,
+                                                               const void* /* data */,
+                                                               size_t /* length */,
+                                                               std::string_view /* name */)
 {
   return nullptr;
 }
@@ -304,8 +304,8 @@ void OGLGfx::DispatchComputeShader(const AbstractShader* shader, u32 groupsize_x
     static_cast<const OGLPipeline*>(m_current_pipeline)->GetProgram()->shader.Bind();
 
   // Barrier to texture can be used for reads.
-  if (std::any_of(m_bound_image_textures.begin(), m_bound_image_textures.end(),
-                  [](auto image) { return image != nullptr; }))
+  if (std::ranges::any_of(m_bound_image_textures,
+                          [](const auto* image) { return image != nullptr; }))
   {
     glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
   }
@@ -366,11 +366,11 @@ void OGLGfx::SetAndClearFramebuffer(AbstractFramebuffer* framebuffer, const Clea
   // Restore color/depth mask.
   if (framebuffer->HasColorBuffer())
   {
-    glColorMask(m_current_blend_state.colorupdate, m_current_blend_state.colorupdate,
-                m_current_blend_state.colorupdate, m_current_blend_state.alphaupdate);
+    glColorMask(m_current_blend_state.color_update, m_current_blend_state.color_update,
+                m_current_blend_state.color_update, m_current_blend_state.alpha_update);
   }
   if (framebuffer->HasDepthBuffer())
-    glDepthMask(m_current_depth_state.updateenable);
+    glDepthMask(m_current_depth_state.update_enable);
 }
 
 void OGLGfx::ClearRegion(const MathUtil::Rectangle<int>& target_rc, bool colorEnable,
@@ -400,18 +400,19 @@ void OGLGfx::ClearRegion(const MathUtil::Rectangle<int>& target_rc, bool colorEn
   // Restore color/depth mask.
   if (colorEnable || alphaEnable)
   {
-    glColorMask(m_current_blend_state.colorupdate, m_current_blend_state.colorupdate,
-                m_current_blend_state.colorupdate, m_current_blend_state.alphaupdate);
+    glColorMask(m_current_blend_state.color_update, m_current_blend_state.color_update,
+                m_current_blend_state.color_update, m_current_blend_state.alpha_update);
   }
   if (zEnable)
-    glDepthMask(m_current_depth_state.updateenable);
+    glDepthMask(m_current_depth_state.update_enable);
 }
 
-void OGLGfx::BindBackbuffer(const ClearColor& clear_color)
+bool OGLGfx::BindBackbuffer(const ClearColor& clear_color)
 {
   CheckForSurfaceChange();
   CheckForSurfaceResize();
   SetAndClearFramebuffer(m_system_framebuffer.get(), clear_color);
+  return true;
 }
 
 void OGLGfx::PresentBackbuffer()
@@ -486,7 +487,7 @@ void OGLGfx::CheckForSurfaceResize()
 void OGLGfx::BeginUtilityDrawing()
 {
   AbstractGfx::BeginUtilityDrawing();
-  if (g_ActiveConfig.backend_info.bSupportsDepthClamp)
+  if (g_backend_info.bSupportsDepthClamp)
   {
     glDisable(GL_CLIP_DISTANCE0);
     glDisable(GL_CLIP_DISTANCE1);
@@ -496,7 +497,7 @@ void OGLGfx::BeginUtilityDrawing()
 void OGLGfx::EndUtilityDrawing()
 {
   AbstractGfx::EndUtilityDrawing();
-  if (g_ActiveConfig.backend_info.bSupportsDepthClamp)
+  if (g_backend_info.bSupportsDepthClamp)
   {
     glEnable(GL_CLIP_DISTANCE0);
     glEnable(GL_CLIP_DISTANCE1);
@@ -509,11 +510,11 @@ void OGLGfx::ApplyRasterizationState(const RasterizationState state)
     return;
 
   // none, ccw, cw, ccw
-  if (state.cullmode != CullMode::None)
+  if (state.cull_mode != CullMode::None)
   {
     // TODO: GX_CULL_ALL not supported, yet!
     glEnable(GL_CULL_FACE);
-    glFrontFace(state.cullmode == CullMode::Front ? GL_CCW : GL_CW);
+    glFrontFace(state.cull_mode == CullMode::Front ? GL_CCW : GL_CW);
   }
   else
   {
@@ -531,10 +532,10 @@ void OGLGfx::ApplyDepthState(const DepthState state)
   const GLenum glCmpFuncs[8] = {GL_NEVER,   GL_LESS,     GL_EQUAL,  GL_LEQUAL,
                                 GL_GREATER, GL_NOTEQUAL, GL_GEQUAL, GL_ALWAYS};
 
-  if (state.testenable)
+  if (state.test_enable)
   {
     glEnable(GL_DEPTH_TEST);
-    glDepthMask(state.updateenable ? GL_TRUE : GL_FALSE);
+    glDepthMask(state.update_enable ? GL_TRUE : GL_FALSE);
     glDepthFunc(glCmpFuncs[u32(state.func.Value())]);
   }
   else
@@ -554,7 +555,7 @@ void OGLGfx::ApplyBlendingState(const BlendingState state)
   if (m_current_blend_state == state)
     return;
 
-  bool useDualSource = state.usedualsrc;
+  bool useDualSource = state.use_dual_src;
 
   const GLenum src_factors[8] = {GL_ZERO,
                                  GL_ONE,
@@ -575,7 +576,7 @@ void OGLGfx::ApplyBlendingState(const BlendingState state)
                                  GL_DST_ALPHA,
                                  GL_ONE_MINUS_DST_ALPHA};
 
-  if (state.blendenable)
+  if (state.blend_enable)
     glEnable(GL_BLEND);
   else
     glDisable(GL_BLEND);
@@ -585,12 +586,12 @@ void OGLGfx::ApplyBlendingState(const BlendingState state)
   // driver issues?). See https://bugs.dolphin-emu.org/issues/10120 : "Sonic
   // Adventure 2 Battle: graphics crash when loading first Dark level"
   GLenum equation = state.subtract ? GL_FUNC_REVERSE_SUBTRACT : GL_FUNC_ADD;
-  GLenum equationAlpha = state.subtractAlpha ? GL_FUNC_REVERSE_SUBTRACT : GL_FUNC_ADD;
+  GLenum equationAlpha = state.subtract_alpha ? GL_FUNC_REVERSE_SUBTRACT : GL_FUNC_ADD;
   glBlendEquationSeparate(equation, equationAlpha);
-  glBlendFuncSeparate(src_factors[u32(state.srcfactor.Value())],
-                      dst_factors[u32(state.dstfactor.Value())],
-                      src_factors[u32(state.srcfactoralpha.Value())],
-                      dst_factors[u32(state.dstfactoralpha.Value())]);
+  glBlendFuncSeparate(src_factors[u32(state.src_factor.Value())],
+                      dst_factors[u32(state.dst_factor.Value())],
+                      src_factors[u32(state.src_factor_alpha.Value())],
+                      dst_factors[u32(state.dst_factor_alpha.Value())]);
 
   const GLenum logic_op_codes[16] = {
       GL_CLEAR,         GL_AND,         GL_AND_REVERSE, GL_COPY,  GL_AND_INVERTED, GL_NOOP,
@@ -600,10 +601,10 @@ void OGLGfx::ApplyBlendingState(const BlendingState state)
   // Logic ops aren't available in GLES3
   if (!IsGLES())
   {
-    if (state.logicopenable)
+    if (state.logic_op_enable)
     {
       glEnable(GL_COLOR_LOGIC_OP);
-      glLogicOp(logic_op_codes[u32(state.logicmode.Value())]);
+      glLogicOp(logic_op_codes[u32(state.logic_mode.Value())]);
     }
     else
     {
@@ -611,7 +612,7 @@ void OGLGfx::ApplyBlendingState(const BlendingState state)
     }
   }
 
-  glColorMask(state.colorupdate, state.colorupdate, state.colorupdate, state.alphaupdate);
+  glColorMask(state.color_update, state.color_update, state.color_update, state.alpha_update);
   m_current_blend_state = state;
 }
 

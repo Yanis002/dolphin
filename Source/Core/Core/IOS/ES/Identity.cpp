@@ -3,11 +3,11 @@
 
 #include "Core/IOS/ES/ES.h"
 
+#include <utility>
 #include <vector>
 
 #include "Common/Crypto/SHA1.h"
 #include "Common/Crypto/ec.h"
-#include "Common/EnumUtils.h"
 #include "Common/Logging/Log.h"
 #include "Common/ScopeGuard.h"
 #include "Common/StringUtil.h"
@@ -139,7 +139,7 @@ ReturnCode ESCore::VerifySign(const std::vector<u8>& hash, const std::vector<u8>
   if (certs.empty())
     return ES_EINVAL;
 
-  const auto ap_iterator = std::find_if(certs.begin(), certs.end(), [](const auto& entry) {
+  const auto ap_iterator = std::ranges::find_if(certs, [](const auto& entry) {
     return entry.first.length() > 2 && entry.first.compare(0, 2, "AP") == 0;
   });
   if (ap_iterator == certs.end())
@@ -165,7 +165,7 @@ ReturnCode ESCore::VerifySign(const std::vector<u8>& hash, const std::vector<u8>
   if (ret != IPC_SUCCESS)
   {
     ERROR_LOG_FMT(IOS_ES, "VerifySign: VerifyContainer(ng) failed with error {}",
-                  Common::ToUnderlying(ret));
+                  std::to_underlying(ret));
     return ret;
   }
 
@@ -173,7 +173,7 @@ ReturnCode ESCore::VerifySign(const std::vector<u8>& hash, const std::vector<u8>
   if (ret != IPC_SUCCESS)
   {
     ERROR_LOG_FMT(IOS_ES, "VerifySign: IOSC_VerifyPublicKeySign(ap) failed with error {}",
-                  Common::ToUnderlying(ret));
+                  std::to_underlying(ret));
     return ret;
   }
 
@@ -187,7 +187,7 @@ ReturnCode ESCore::VerifySign(const std::vector<u8>& hash, const std::vector<u8>
   if (ret != IPC_SUCCESS)
   {
     ERROR_LOG_FMT(IOS_ES, "VerifySign: IOSC_ImportPublicKey(ap) failed with error {}",
-                  Common::ToUnderlying(ret));
+                  std::to_underlying(ret));
     return ret;
   }
 
@@ -196,7 +196,7 @@ ReturnCode ESCore::VerifySign(const std::vector<u8>& hash, const std::vector<u8>
   if (ret != IPC_SUCCESS)
   {
     ERROR_LOG_FMT(IOS_ES, "VerifySign: IOSC_VerifyPublicKeySign(data) failed with error {}",
-                  Common::ToUnderlying(ret));
+                  std::to_underlying(ret));
     return ret;
   }
 

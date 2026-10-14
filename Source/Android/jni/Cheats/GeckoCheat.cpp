@@ -6,6 +6,9 @@
 
 #include <jni.h>
 
+#include <fmt/format.h>
+#include <fmt/ranges.h>
+
 #include "Common/FileUtil.h"
 #include "Common/IniFile.h"
 #include "Core/ConfigManager.h"
@@ -58,7 +61,7 @@ Java_org_dolphinemu_dolphinemu_features_cheats_model_GeckoCheat_getCreator(JNIEn
 JNIEXPORT jstring JNICALL
 Java_org_dolphinemu_dolphinemu_features_cheats_model_GeckoCheat_getNotes(JNIEnv* env, jobject obj)
 {
-  return ToJString(env, JoinStrings(GetPointer(env, obj)->notes, "\n"));
+  return ToJString(env, fmt::to_string(fmt::join(GetPointer(env, obj)->notes, "\n")));
 }
 
 JNIEXPORT jstring JNICALL
@@ -187,11 +190,10 @@ Java_org_dolphinemu_dolphinemu_features_cheats_model_GeckoCheat_downloadCodes(JN
 {
   const std::string gametdb_id = GetJString(env, jGameTdbId);
 
-  bool success = true;
-  const std::vector<Gecko::GeckoCode> codes = Gecko::DownloadCodes(gametdb_id, &success, false);
-
-  if (!success)
+  const auto codes_result = Gecko::DownloadCodes(gametdb_id);
+  if (!codes_result)
     return nullptr;
+  const std::vector<Gecko::GeckoCode>& codes = *codes_result;
 
   const jobjectArray array =
       env->NewObjectArray(static_cast<jsize>(codes.size()), IDCache::GetGeckoCheatClass(), nullptr);

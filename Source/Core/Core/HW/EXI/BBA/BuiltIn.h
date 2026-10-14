@@ -4,7 +4,7 @@
 #pragma once
 
 #ifdef _WIN32
-#include <WinSock2.h>
+#include <winsock2.h>
 using socklen_t = int;
 #else
 #include <netinet/in.h>
@@ -76,7 +76,6 @@ struct StackRef
   u16 local;
   u16 remote;
   u16 type;
-  sf::IpAddress target;
   u32 seq_num;
   u32 ack_num;
   u32 ack_base;

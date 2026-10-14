@@ -19,7 +19,6 @@ jmethodID GetOnTitleChanged();
 jmethodID GetFinishEmulationActivity();
 
 jclass GetAnalyticsClass();
-jmethodID GetSendAnalyticsReport();
 jmethodID GetAnalyticsValue();
 
 jclass GetGameFileClass();
@@ -29,9 +28,34 @@ jmethodID GetGameFileConstructor();
 jclass GetGameFileCacheClass();
 jfieldID GetGameFileCachePointer();
 
-jclass GetLinkedHashMapClass();
-jmethodID GetLinkedHashMapInit();
-jmethodID GetLinkedHashMapPut();
+jclass GetNetplaySessionClass();
+jfieldID GetNetPlayUICallbacksPointer();
+jfieldID GetNetPlayClientPointer();
+jfieldID GetNetPlayServerPointer();
+jmethodID GetNetplayOnBootGame();
+jmethodID GetNetplayOnStopGame();
+jmethodID GetNetplayOnConnectionLost();
+jmethodID GetNetplayOnConnectionError();
+jmethodID GetNetplayOnGameChanged();
+jmethodID GetNetplayOnHostInputAuthorityChanged();
+jmethodID GetNetplayOnPadBufferChanged();
+jmethodID GetNetplayOnChatMessageReceived();
+jmethodID GetNetplayUpdate();
+jmethodID GetNetplayOnShowChunkedProgressDialog();
+jmethodID GetNetplayOnSetChunkedProgress();
+jmethodID GetNetplayOnHideChunkedProgressDialog();
+jmethodID GetNetplayOnDesync();
+jmethodID GetNetplayOnShowGameDigestDialog();
+jmethodID GetNetplayOnSetGameDigestProgress();
+jmethodID GetNetplayOnSetGameDigestResult();
+jmethodID GetNetplayOnAbortGameDigest();
+jmethodID GetNetplayOnTraversalStateChanged();
+
+jclass GetNetplayPlayerClass();
+jmethodID GetNetplayPlayerConstructor();
+
+jclass GetPairClass();
+jmethodID GetPairConstructor();
 
 jclass GetHashMapClass();
 jmethodID GetHashMapInit();
@@ -93,6 +117,10 @@ jclass GetControlReferenceClass();
 jfieldID GetControlReferencePointer();
 jmethodID GetControlReferenceConstructor();
 
+jclass GetControlGroupContainerClass();
+jfieldID GetControlGroupContainerPointer();
+jmethodID GetControlGroupContainerConstructor();
+
 jclass GetEmulatedControllerClass();
 jfieldID GetEmulatedControllerPointer();
 jmethodID GetEmulatedControllerConstructor();
@@ -109,6 +137,17 @@ jclass GetCoreDeviceControlClass();
 jfieldID GetCoreDeviceControlPointer();
 jmethodID GetCoreDeviceControlConstructor();
 
+jclass GetInputDetectorClass();
+jfieldID GetInputDetectorPointer();
+
+jclass GetPermissionHandlerClass();
+jmethodID GetPermissionHandlerHasRecordAudioPermission();
+jmethodID GetPermissionHandlerRequestRecordAudioPermission();
+
 jmethodID GetRunnableRun();
+
+jclass GetAudioUtilsClass();
+jmethodID GetAudioUtilsGetSampleRate();
+jmethodID GetAudioUtilsGetFramesPerBuffer();
 
 }  // namespace IDCache

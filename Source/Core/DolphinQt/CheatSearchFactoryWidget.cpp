@@ -18,14 +18,12 @@
 
 #include "Common/StringUtil.h"
 #include "Core/CheatSearch.h"
-#include "Core/Config/MainSettings.h"
 #include "Core/Core.h"
 #include "Core/HW/Memmap.h"
 #include "Core/PowerPC/MMU.h"
 #include "Core/System.h"
 #include "DolphinQt/QtUtils/ModalMessageBox.h"
 #include "DolphinQt/QtUtils/NonDefaultQPushButton.h"
-#include "DolphinQt/QtUtils/WrapInScrollArea.h"
 
 CheatSearchFactoryWidget::CheatSearchFactoryWidget()
 {
@@ -40,7 +38,7 @@ Q_DECLARE_METATYPE(Cheats::DataType);
 
 void CheatSearchFactoryWidget::CreateWidgets()
 {
-  auto* layout = new QVBoxLayout();
+  auto* const layout = new QVBoxLayout{this};
 
   auto* address_space_group = new QGroupBox(tr("Address Space"));
   auto* address_space_layout = new QVBoxLayout();
@@ -124,8 +122,6 @@ void CheatSearchFactoryWidget::CreateWidgets()
   layout->addWidget(m_new_search);
 
   layout->addStretch();
-
-  WrapInScrollArea(this, layout);
 }
 
 void CheatSearchFactoryWidget::ConnectWidgets()
@@ -159,8 +155,7 @@ void CheatSearchFactoryWidget::OnNewSearchClicked()
   if (m_standard_address_space->isChecked())
   {
     auto& system = Core::System::GetInstance();
-    const Core::State core_state = Core::GetState(system);
-    if (core_state != Core::State::Running && core_state != Core::State::Paused)
+    if (!Core::IsRunning(system))
     {
       ModalMessageBox::warning(
           this, tr("No game running."),

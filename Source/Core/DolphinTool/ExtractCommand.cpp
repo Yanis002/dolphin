@@ -4,7 +4,6 @@
 #include "DolphinTool/ExtractCommand.h"
 
 #include <filesystem>
-#include <future>
 #include <iostream>
 
 #include <fmt/format.h>
@@ -39,8 +38,7 @@ static std::unique_ptr<DiscIO::FileInfo> GetFileInfo(const DiscIO::Volume& disc_
   if (!filesystem)
     return nullptr;
 
-  std::unique_ptr<DiscIO::FileInfo> info = filesystem->FindFileInfo(path);
-  return info;
+  return filesystem->FindFileInfo(path);
 }
 
 static bool VolumeSupported(const DiscIO::Volume& disc_volume)
@@ -121,6 +119,11 @@ static bool ListPartition(const DiscIO::Volume& disc_volume, const DiscIO::Parti
                           std::string* result_text)
 {
   const DiscIO::FileSystem* filesystem = disc_volume.GetFileSystem(partition);
+  if (!filesystem)
+  {
+    fmt::println(std::cerr, "Warning: partition {} has no filesystem.", partition_name);
+    return false;
+  }
   const std::unique_ptr<DiscIO::FileInfo> info = filesystem->FindFileInfo(path);
 
   if (!info)
@@ -169,14 +172,15 @@ static bool ListVolume(const DiscIO::Volume& disc_volume, const std::string& pat
     fmt::print(std::cout, "{}", partition_start);
     result_text->append(partition_start);
 
-    success |= ListPartition(disc_volume, p, specific_partition_name, path, result_text);
+    success |= ListPartition(disc_volume, p, partition_name, path, result_text);
   }
 
   return success;
 }
 
 static bool HandleExtractPartition(const std::string& output, const std::string& single_file_path,
-                                   const std::string& partition_name, DiscIO::Volume& disc_volume,
+                                   const std::string& partition_name,
+                                   const DiscIO::Volume& disc_volume,
                                    const DiscIO::Partition& partition, bool quiet, bool single)
 {
   std::string file;
@@ -188,7 +192,8 @@ static bool HandleExtractPartition(const std::string& output, const std::string&
     return true;
   }
 
-  if (auto file_info = GetFileInfo(disc_volume, partition, single_file_path); file_info != nullptr)
+  const auto file_info = GetFileInfo(disc_volume, partition, single_file_path);
+  if (file_info != nullptr)
   {
     file.append("files/").append(single_file_path);
     File::CreateFullPath(file);

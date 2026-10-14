@@ -6,13 +6,12 @@
 
 #include <QLabel>
 #include <QLineEdit>
+#include <QPushButton>
 #include <QString>
 #include <QVBoxLayout>
 
 #include "Core/AchievementManager.h"
 #include "Core/Config/AchievementSettings.h"
-#include "Core/Config/FreeLookSettings.h"
-#include "Core/Config/MainSettings.h"
 #include "Core/Config/UISettings.h"
 #include "Core/Core.h"
 #include "Core/Movie.h"
@@ -21,7 +20,7 @@
 
 #include "DolphinQt/Config/ControllerInterface/ControllerInterfaceWindow.h"
 #include "DolphinQt/Config/ToolTipControls/ToolTipCheckBox.h"
-#include "DolphinQt/QtUtils/NonDefaultQPushButton.h"
+#include "DolphinQt/QtUtils/ModalMessageBox.h"
 #include "DolphinQt/QtUtils/SignalBlocking.h"
 #include "DolphinQt/Settings.h"
 
@@ -33,14 +32,30 @@ AchievementSettingsWidget::AchievementSettingsWidget(QWidget* parent) : QWidget(
 
   connect(&Settings::Instance(), &Settings::ConfigChanged, this,
           &AchievementSettingsWidget::LoadSettings);
-
-  // If hardcore is enabled when the emulator starts, make sure it turns off what it needs to
-  if (Config::Get(Config::RA_HARDCORE_ENABLED))
-    ToggleHardcore();
 }
 
-void AchievementSettingsWidget::UpdateData()
+void AchievementSettingsWidget::UpdateData(int login_failed_code)
 {
+  if (login_failed_code != RC_OK)
+  {
+    switch (login_failed_code)
+    {
+    case RC_LOGIN_REQUIRED:
+    case RC_EXPIRED_TOKEN:
+      m_common_login_failed->setText(tr("Logged Out - Credentials Expired"));
+      break;
+    case RC_INVALID_CREDENTIALS:
+      m_common_login_failed->setText(tr("Login Failed - Invalid Username/Password"));
+      break;
+    case RC_NO_RESPONSE:
+      m_common_login_failed->setText(tr("Login Failed - No Internet Connection"));
+      break;
+    default:
+      m_common_login_failed->setText(tr("Login Failed - Server Error"));
+      break;
+    }
+    m_common_login_failed->setVisible(true);
+  }
   LoadSettings();
 }
 
@@ -96,6 +111,16 @@ void AchievementSettingsWidget::CreateLayout()
          "submitted to the server.<br><br>If this is on at game launch, it will not be turned off "
          "until game close, because a RetroAchievements session will not be created.<br><br>If "
          "this is off at game launch, it can be toggled freely while the game is running."));
+  m_common_leaderboard_tracker_enabled_input = new ToolTipCheckBox(tr("Show Leaderboard Tracker"));
+  m_common_leaderboard_tracker_enabled_input->SetDescription(
+      tr("Show the on-screen RetroAchievements leaderboard tracker.<br><br>This appears in the "
+         "bottom-right corner while competing in a leaderboard."));
+  m_common_challenge_indicators_enabled_input =
+      new ToolTipCheckBox(tr("Show Challenge Indicators"));
+  m_common_challenge_indicators_enabled_input->SetDescription(
+      tr("Show the on-screen RetroAchievements challenge indicators.<br><br>These appear as "
+         "achievement badges in the bottom-right corner while tracking progress within a "
+         "challenge."));
   m_common_discord_presence_enabled_input = new ToolTipCheckBox(tr("Enable Discord Presence"));
   m_common_discord_presence_enabled_input->SetDescription(
       tr("Use RetroAchievements rich presence in your Discord status.<br><br>Show Current Game on "
@@ -125,6 +150,8 @@ void AchievementSettingsWidget::CreateLayout()
 #ifdef USE_DISCORD_PRESENCE
   m_common_layout->addWidget(m_common_discord_presence_enabled_input);
 #endif  // USE_DISCORD_PRESENCE
+  m_common_layout->addWidget(m_common_leaderboard_tracker_enabled_input);
+  m_common_layout->addWidget(m_common_challenge_indicators_enabled_input);
   m_common_layout->addWidget(m_common_progress_enabled_input);
 
   m_common_layout->setAlignment(Qt::AlignTop);
@@ -145,6 +172,10 @@ void AchievementSettingsWidget::ConnectWidgets()
           &AchievementSettingsWidget::ToggleEncore);
   connect(m_common_spectator_enabled_input, &QCheckBox::toggled, this,
           &AchievementSettingsWidget::ToggleSpectator);
+  connect(m_common_leaderboard_tracker_enabled_input, &QCheckBox::toggled, this,
+          &AchievementSettingsWidget::ToggleLeaderboardTracker);
+  connect(m_common_challenge_indicators_enabled_input, &QCheckBox::toggled, this,
+          &AchievementSettingsWidget::ToggleChallengeIndicators);
   connect(m_common_discord_presence_enabled_input, &QCheckBox::toggled, this,
           &AchievementSettingsWidget::ToggleDiscordPresence);
   connect(m_common_progress_enabled_input, &QCheckBox::toggled, this,
@@ -161,6 +192,8 @@ void AchievementSettingsWidget::OnControllerInterfaceConfigure()
 
 void AchievementSettingsWidget::LoadSettings()
 {
+  Core::System& system = Core::System::GetInstance();
+
   bool enabled = Config::Get(Config::RA_ENABLED);
   bool hardcore_enabled = Config::Get(Config::RA_HARDCORE_ENABLED);
   bool logged_out = Config::Get(Config::RA_API_TOKEN).empty();
@@ -176,27 +209,20 @@ void AchievementSettingsWidget::LoadSettings()
   SignalBlocking(m_common_password_input)->setVisible(logged_out);
   SignalBlocking(m_common_password_input)->setEnabled(enabled);
   SignalBlocking(m_common_login_button)->setVisible(logged_out);
-  SignalBlocking(m_common_login_button)
-      ->setEnabled(enabled && !Core::IsRunning(Core::System::GetInstance()));
-  if (enabled && Core::IsRunning(Core::System::GetInstance()))
-  {
-    SignalBlocking(m_common_login_button)->setText(tr("To log in, stop the current emulation."));
-  }
-  else
-  {
+  SignalBlocking(m_common_login_button)->setEnabled(enabled && Core::IsUninitialized(system));
+  if (!enabled || Core::IsUninitialized(system))
     SignalBlocking(m_common_login_button)->setText(tr("Log In"));
-  }
+  else
+    SignalBlocking(m_common_login_button)->setText(tr("To log in, stop the current emulation."));
 
   SignalBlocking(m_common_logout_button)->setVisible(!logged_out);
   SignalBlocking(m_common_logout_button)->setEnabled(enabled);
 
   SignalBlocking(m_common_hardcore_enabled_input)
       ->setChecked(Config::Get(Config::RA_HARDCORE_ENABLED));
-  auto& system = Core::System::GetInstance();
   SignalBlocking(m_common_hardcore_enabled_input)
-      ->setEnabled(enabled &&
-                   (hardcore_enabled || (Core::GetState(system) == Core::State::Uninitialized &&
-                                         !system.GetMovie().IsPlayingInput())));
+      ->setEnabled(enabled && (hardcore_enabled || (Core::IsUninitialized(system) &&
+                                                    !system.GetMovie().IsPlayingInput())));
 
   SignalBlocking(m_common_unofficial_enabled_input)
       ->setChecked(Config::Get(Config::RA_UNOFFICIAL_ENABLED));
@@ -208,6 +234,14 @@ void AchievementSettingsWidget::LoadSettings()
   SignalBlocking(m_common_spectator_enabled_input)
       ->setChecked(Config::Get(Config::RA_SPECTATOR_ENABLED));
   SignalBlocking(m_common_spectator_enabled_input)->setEnabled(enabled);
+
+  SignalBlocking(m_common_leaderboard_tracker_enabled_input)
+      ->setChecked(Config::Get(Config::RA_LEADERBOARD_TRACKER_ENABLED));
+  SignalBlocking(m_common_leaderboard_tracker_enabled_input)->setEnabled(enabled);
+
+  SignalBlocking(m_common_challenge_indicators_enabled_input)
+      ->setChecked(Config::Get(Config::RA_CHALLENGE_INDICATORS_ENABLED));
+  SignalBlocking(m_common_challenge_indicators_enabled_input)->setEnabled(enabled);
 
   SignalBlocking(m_common_discord_presence_enabled_input)
       ->setChecked(Config::Get(Config::RA_DISCORD_PRESENCE_ENABLED));
@@ -231,6 +265,10 @@ void AchievementSettingsWidget::SaveSettings()
   Config::SetBaseOrCurrent(Config::RA_ENCORE_ENABLED, m_common_encore_enabled_input->isChecked());
   Config::SetBaseOrCurrent(Config::RA_SPECTATOR_ENABLED,
                            m_common_spectator_enabled_input->isChecked());
+  Config::SetBaseOrCurrent(Config::RA_LEADERBOARD_TRACKER_ENABLED,
+                           m_common_leaderboard_tracker_enabled_input->isChecked());
+  Config::SetBaseOrCurrent(Config::RA_CHALLENGE_INDICATORS_ENABLED,
+                           m_common_challenge_indicators_enabled_input->isChecked());
   Config::SetBaseOrCurrent(Config::RA_DISCORD_PRESENCE_ENABLED,
                            m_common_discord_presence_enabled_input->isChecked());
   Config::SetBaseOrCurrent(Config::RA_PROGRESS_ENABLED,
@@ -244,18 +282,14 @@ void AchievementSettingsWidget::ToggleRAIntegration()
 
   auto& instance = AchievementManager::GetInstance();
   if (Config::Get(Config::RA_ENABLED))
-    instance.Init();
+    instance.Init(reinterpret_cast<void*>(winId()));
   else
     instance.Shutdown();
-  if (Config::Get(Config::RA_HARDCORE_ENABLED))
-  {
-    emit Settings::Instance().EmulationStateChanged(Core::GetState(Core::System::GetInstance()));
-    emit Settings::Instance().HardcoreStateChanged();
-  }
 }
 
 void AchievementSettingsWidget::Login()
 {
+  m_common_login_failed->setVisible(false);
   Config::SetBaseOrCurrent(Config::RA_USERNAME, m_common_username_input->text().toStdString());
   AchievementManager::GetInstance().Login(m_common_password_input->text().toStdString());
   m_common_password_input->setText(QString());
@@ -264,24 +298,30 @@ void AchievementSettingsWidget::Login()
 
 void AchievementSettingsWidget::Logout()
 {
-  AchievementManager::GetInstance().Logout();
-  SaveSettings();
+  auto confirm = ModalMessageBox::question(
+      this, tr("Confirm Logout"), tr("Are you sure you want to log out of RetroAchievements?"),
+      QMessageBox::Yes | QMessageBox::No, QMessageBox::NoButton, Qt::ApplicationModal);
+  if (confirm == QMessageBox::Yes)
+  {
+    AchievementManager::GetInstance().Logout();
+    SaveSettings();
+  }
 }
 
 void AchievementSettingsWidget::ToggleHardcore()
 {
-  SaveSettings();
-  AchievementManager::GetInstance().SetHardcoreMode();
   if (Config::Get(Config::RA_HARDCORE_ENABLED))
   {
-    if (Config::Get(Config::MAIN_EMULATION_SPEED) < 1.0f)
-      Config::SetBaseOrCurrent(Config::MAIN_EMULATION_SPEED, 1.0f);
-    Config::SetBaseOrCurrent(Config::FREE_LOOK_ENABLED, false);
-    Config::SetBaseOrCurrent(Config::MAIN_ENABLE_CHEATS, false);
-    Settings::Instance().SetDebugModeEnabled(false);
+    auto confirm = ModalMessageBox::question(
+        this, tr("Confirm Hardcore Off"), tr("Are you sure you want to turn hardcore mode off?"),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::NoButton, Qt::ApplicationModal);
+    if (confirm != QMessageBox::Yes)
+    {
+      SignalBlocking(m_common_hardcore_enabled_input)->setChecked(true);
+      return;
+    }
   }
-  emit Settings::Instance().EmulationStateChanged(Core::GetState(Core::System::GetInstance()));
-  emit Settings::Instance().HardcoreStateChanged();
+  SaveSettings();
 }
 
 void AchievementSettingsWidget::ToggleUnofficial()
@@ -298,6 +338,16 @@ void AchievementSettingsWidget::ToggleSpectator()
 {
   SaveSettings();
   AchievementManager::GetInstance().SetSpectatorMode();
+}
+
+void AchievementSettingsWidget::ToggleLeaderboardTracker()
+{
+  SaveSettings();
+}
+
+void AchievementSettingsWidget::ToggleChallengeIndicators()
+{
+  SaveSettings();
 }
 
 void AchievementSettingsWidget::ToggleDiscordPresence()

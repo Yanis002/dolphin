@@ -7,17 +7,15 @@
 #include <array>
 #include <cstdio>
 #include <cstring>
-#include <iterator>
 #include <map>
 #include <memory>
-#include <sstream>
 #include <string>
 #include <string_view>
-#include <tuple>
 #include <utility>
 #include <vector>
 
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <pugixml.hpp>
 
 #include "Common/BitUtils.h"
@@ -29,7 +27,6 @@
 #include "Common/HttpRequest.h"
 #include "Common/IOFile.h"
 #include "Common/Image.h"
-#include "Common/IniFile.h"
 #include "Common/MsgHandler.h"
 #include "Common/NandPaths.h"
 #include "Common/StringUtil.h"
@@ -436,7 +433,7 @@ bool GameFile::ReadPNGBanner(const std::string& path)
     return false;
 
   GameBanner& banner = m_pending.custom_banner;
-  std::vector<u8> data_out;
+  Common::UniqueBuffer<u8> data_out;
   if (!Common::LoadPNG(png_data, &data_out, &banner.width, &banner.height))
     return false;
 
@@ -613,11 +610,10 @@ bool GameFile::CheckIfTwoDiscGame(const std::string& game_id) const
       "S6T",
       "SDQ",
   };
-  static_assert(std::is_sorted(two_disc_game_id_prefixes.begin(), two_disc_game_id_prefixes.end()));
+  static_assert(std::ranges::is_sorted(two_disc_game_id_prefixes));
 
   std::string_view game_id_prefix(game_id.data(), GAME_ID_PREFIX_SIZE);
-  return std::binary_search(two_disc_game_id_prefixes.begin(), two_disc_game_id_prefixes.end(),
-                            game_id_prefix);
+  return std::ranges::binary_search(two_disc_game_id_prefixes, game_id_prefix);
 }
 
 std::string GameFile::GetNetPlayName(const Core::TitleDatabase& title_database) const
@@ -626,7 +622,7 @@ std::string GameFile::GetNetPlayName(const Core::TitleDatabase& title_database) 
   if (!GetGameID().empty())
     info.push_back(GetGameID());
   if (GetRevision() != 0)
-    info.push_back("Revision " + std::to_string(GetRevision()));
+    info.push_back(fmt::format("Revision {}", GetRevision()));
 
   const std::string name = GetName(title_database);
 
@@ -634,19 +630,16 @@ std::string GameFile::GetNetPlayName(const Core::TitleDatabase& title_database) 
 
   std::string lower_name = name;
   Common::ToLower(&lower_name);
-  if (disc_number > 1 &&
-      lower_name.find(fmt::format("disc {}", disc_number)) == std::string::npos &&
-      lower_name.find(fmt::format("disc{}", disc_number)) == std::string::npos)
+  auto is_numbered_disc = lower_name.contains(fmt::format("disc {}", disc_number)) ||
+                          lower_name.contains(fmt::format("disc{}", disc_number));
+
+  if (disc_number > 1 && !is_numbered_disc)
   {
-    std::string disc_text = "Disc ";
-    info.push_back(disc_text + std::to_string(disc_number));
+    info.push_back(fmt::format("Disc {}", disc_number));
   }
   if (info.empty())
     return name;
-  std::ostringstream ss;
-  std::copy(info.begin(), info.end() - 1, std::ostream_iterator<std::string>(ss, ", "));
-  ss << info.back();
-  return name + " (" + ss.str() + ")";
+  return fmt::format("{} ({})", name, fmt::join(info, ", "));
 }
 
 static Common::SHA1::Digest GetHash(u32 value)
@@ -841,7 +834,7 @@ std::string GameFile::GetFileFormatName() const
   {
     std::string name = DiscIO::GetName(m_blob_type, true);
     if (m_is_nkit)
-      name = Common::FmtFormatT("{0} (NKit)", name);
+      return Common::FmtFormatT("{0} (NKit)", name);
     return name;
   }
   }
@@ -849,7 +842,8 @@ std::string GameFile::GetFileFormatName() const
 
 bool GameFile::ShouldAllowConversion() const
 {
-  return DiscIO::IsDisc(m_platform) && m_volume_size_type == DiscIO::DataSizeType::Accurate;
+  return DiscIO::IsDisc(m_platform) && m_volume_size_type == DiscIO::DataSizeType::Accurate &&
+         !IsModDescriptor();
 }
 
 bool GameFile::IsModDescriptor() const

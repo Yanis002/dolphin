@@ -8,7 +8,6 @@
 #include <map>
 
 #include "Common/CommonTypes.h"
-#include "Common/Config/Config.h"
 
 #include "Core/Config/MainSettings.h"
 #include "Core/Core.h"
@@ -16,7 +15,7 @@
 #include "Core/HLE/HLE_Misc.h"
 #include "Core/HLE/HLE_OS.h"
 #include "Core/HW/Memmap.h"
-#include "Core/IOS/ES/ES.h"
+#include "Core/Host.h"
 #include "Core/PowerPC/PPCSymbolDB.h"
 #include "Core/PowerPC/PowerPC.h"
 #include "Core/System.h"
@@ -74,6 +73,7 @@ void Patch(Core::System& system, u32 addr, std::string_view func_name)
     {
       s_hooked_addresses[addr] = i;
       ppc_state.iCache.Invalidate(memory, jit_interface, addr);
+      Host_JitCacheInvalidation();
       return;
     }
   }
@@ -101,7 +101,7 @@ void PatchFixedFunctions(Core::System& system)
   // Not part of the binary itself, but either we or Gecko OS might insert
   // this, and it doesn't clear the icache properly.
   Patch(system, Gecko::ENTRY_POINT, "GeckoCodehandler");
-  // This has to always be installed even if cheats are not enabled because of the possiblity of
+  // This has to always be installed even if cheats are not enabled because of the possibility of
   // loading a savestate where PC is inside the code handler while cheats are disabled.
   Patch(system, Gecko::HLE_TRAMPOLINE_ADDRESS, "GeckoHandlerReturnTrampoline");
 }
@@ -144,6 +144,8 @@ void PatchFunctions(Core::System& system)
       INFO_LOG_FMT(OSHLE, "Patching {} {:08x}", os_patches[i].name, symbol->address);
     }
   }
+
+  Host_JitCacheInvalidation();
 }
 
 void Clear()
@@ -195,6 +197,11 @@ u32 GetHookByFunctionAddress(PPCSymbolDB& ppc_symbol_db, u32 address)
   return (symbol && symbol->address == address) ? index : 0;
 }
 
+const char* GetHookNameByIndex(u32 index)
+{
+  return os_patches[index].name;
+}
+
 HookType GetHookTypeByIndex(u32 index)
 {
   return os_patches[index].type;
@@ -231,8 +238,7 @@ bool IsEnabled(HookFlag flag, PowerPC::CoreMode mode)
 
 u32 UnPatch(Core::System& system, std::string_view patch_name)
 {
-  const auto patch = std::find_if(std::begin(os_patches), std::end(os_patches),
-                                  [&](const Hook& p) { return patch_name == p.name; });
+  const auto patch = std::ranges::find(os_patches, patch_name, &Hook::name);
   if (patch == std::end(os_patches))
     return 0;
 
@@ -259,6 +265,7 @@ u32 UnPatch(Core::System& system, std::string_view patch_name)
         ++i;
       }
     }
+    Host_JitCacheInvalidation();
     return addr;
   }
 
@@ -271,6 +278,7 @@ u32 UnPatch(Core::System& system, std::string_view patch_name)
       s_hooked_addresses.erase(addr);
       ppc_state.iCache.Invalidate(memory, jit_interface, addr);
     }
+    Host_JitCacheInvalidation();
     return symbol->address;
   }
 
@@ -294,6 +302,7 @@ u32 UnpatchRange(Core::System& system, u32 start_addr, u32 end_addr)
     i = s_hooked_addresses.erase(i);
     count += 1;
   }
+  Host_JitCacheInvalidation();
 
   return count;
 }

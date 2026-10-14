@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "Common/Logging/Log.h"
-#include "Common/NandPaths.h"
 #include "Core/CommonTitles.h"
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
@@ -147,7 +146,7 @@ ReturnCode ESCore::GetTicketFromView(const u8* ticket_view, u8* ticket, u32* tic
     return ES_EACCES;
   }
 
-  std::copy(ticket_bytes.begin(), ticket_bytes.end(), ticket);
+  std::ranges::copy(ticket_bytes, ticket);
   return IPC_SUCCESS;
 }
 

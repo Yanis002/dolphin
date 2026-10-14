@@ -11,8 +11,6 @@
 #include "Common/MathUtil.h"
 #include "Common/Matrix.h"
 
-#include "Core/HW/WiimoteCommon/WiimoteReport.h"
-
 namespace WiimoteEmu
 {
 void CameraLogic::Reset()
@@ -70,7 +68,7 @@ CameraLogic::GetCameraPoints(const Common::Matrix44& transform, Common::Vec2 fie
 
   std::array<CameraPoint, CameraLogic::NUM_POINTS> camera_points;
 
-  std::transform(leds.begin(), leds.end(), camera_points.begin(), [&](const Vec3& v) {
+  std::ranges::transform(leds, camera_points.begin(), [&](const Vec3& v) {
     const auto point = camera_view * Vec4(v, 1.0);
 
     // Check if LED is behind camera.

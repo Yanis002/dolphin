@@ -7,7 +7,7 @@
 #include <chrono>
 #include <regex>
 
-#include "Common/Event.h"
+#include "Common/Contains.h"
 #include "Core/Core.h"
 #include "Core/Debugger/PPCDebugInterface.h"
 #include "Core/HW/CPU.h"
@@ -33,16 +33,15 @@ u32 GetMemoryTargetSize(std::string_view instr)
   constexpr char PAIRED_TAG = 'p';
 
   // Actual range is 0 to size - 1;
-  if (op.find(BYTE_TAG) != std::string::npos)
+  if (op.contains(BYTE_TAG))
   {
     return 1;
   }
-  else if (op.find(HALF_TAG) != std::string::npos)
+  else if (op.contains(HALF_TAG))
   {
     return 2;
   }
-  else if (op.find(DOUBLE_WORD_TAG) != std::string::npos ||
-           op.find(PAIRED_TAG) != std::string::npos)
+  else if (op.contains(DOUBLE_WORD_TAG) || op.contains(PAIRED_TAG))
   {
     return 8;
   }
@@ -252,23 +251,20 @@ HitType CodeTrace::TraceLogic(const TraceOutput& current_instr, bool first_hit)
     return HitType::SKIP;
 
   // The reg_itr will be used later for erasing.
-  auto reg_itr = std::find(m_reg_autotrack.begin(), m_reg_autotrack.end(), instr.reg0);
+  auto reg_itr = std::ranges::find(m_reg_autotrack, instr.reg0);
   const bool match_reg123 =
-      (!instr.reg1.empty() && std::find(m_reg_autotrack.begin(), m_reg_autotrack.end(),
-                                        instr.reg1) != m_reg_autotrack.end()) ||
-      (!instr.reg2.empty() && std::find(m_reg_autotrack.begin(), m_reg_autotrack.end(),
-                                        instr.reg2) != m_reg_autotrack.end()) ||
-      (!instr.reg3.empty() && std::find(m_reg_autotrack.begin(), m_reg_autotrack.end(),
-                                        instr.reg3) != m_reg_autotrack.end());
+      (!instr.reg1.empty() && Common::Contains(m_reg_autotrack, instr.reg1)) ||
+      (!instr.reg2.empty() && Common::Contains(m_reg_autotrack, instr.reg2)) ||
+      (!instr.reg3.empty() && Common::Contains(m_reg_autotrack, instr.reg3));
   const bool match_reg0 = reg_itr != m_reg_autotrack.end();
 
   if (!match_reg0 && !match_reg123 && !mem_hit)
     return HitType::SKIP;
 
-  // Checks if the intstruction is a type that needs special handling.
+  // Checks if the instruction is a type that needs special handling.
   const auto CompareInstruction = [](std::string_view instruction, const auto& type_compare) {
-    return std::any_of(type_compare.begin(), type_compare.end(),
-                       [&instruction](std::string_view s) { return instruction.starts_with(s); });
+    return std::ranges::any_of(
+        type_compare, [&instruction](std::string_view s) { return instruction.starts_with(s); });
   };
 
   // Exclusions from updating tracking logic. mt operations are too complex and specialized.

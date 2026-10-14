@@ -6,13 +6,11 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <memory>
 #include <string>
 
 #include "Common/Common.h"
 #include "Common/CommonTypes.h"
 
-#include "InputCommon/ControlReference/ControlReference.h"
 #include "InputCommon/ControllerEmu/Control/Control.h"
 
 namespace ControllerEmu
@@ -28,7 +26,7 @@ MixedTriggers::MixedTriggers(const std::string& name_)
               _trans("%"),
               // i18n: Refers to the "threshold" setting for pressure sensitive gamepad inputs.
               _trans("Input strength required for activation.")},
-             90, 0, 100);
+             90, 1, 100);
 }
 
 void MixedTriggers::GetState(u16* const digital, const u16* bitmasks, ControlState* analog,
@@ -51,7 +49,7 @@ void MixedTriggers::GetState(u16* const digital, const u16* bitmasks, ControlSta
         std::min(ApplyDeadzone(controls[trigger_count + i]->GetState(), deadzone), 1.0);
 
     // Apply threshold:
-    if (button_value > threshold)
+    if (button_value >= threshold)
     {
       // Fully activate analog:
       analog_value = 1.0;
@@ -87,7 +85,7 @@ void MixedTriggers::GetState(u16* digital, const u16* bitmasks, ControlState* an
     ControlState analog_value = ApplyDeadzone(controls[trigger_count + i]->GetState(), deadzone);
 
     // Apply threshold:
-    if (button_value > threshold)
+    if (button_value >= threshold)
     {
       analog_value = 1.0;
       button_bool = true;

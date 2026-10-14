@@ -8,12 +8,10 @@
 #include <QImageReader>
 #include <QPixmap>
 
-#include "Common/Assert.h"
 #include "Common/FileUtil.h"
+#include "Common/Logging/Log.h"
 
 #include "Core/Config/MainSettings.h"
-
-#include "DolphinQt/Settings.h"
 
 bool Resources::m_svg_supported;
 QList<QIcon> Resources::m_platforms;
@@ -50,7 +48,10 @@ QIcon Resources::LoadNamedIcon(std::string_view name, const QString& dir)
   for (auto scale : {1, 2, 4})
     load_png(scale);
 
-  ASSERT(icon.availableSizes().size() > 0);
+  if (icon.isNull())
+  {
+    ERROR_LOG_FMT(COMMON, "LoadNamedIcon: \"{}\" could not be loaded.", name);
+  }
 
   return icon;
 }
@@ -80,7 +81,7 @@ void Resources::Init()
   m_svg_supported = QImageReader::supportedImageFormats().contains("svg");
 
   for (std::string_view platform :
-       {"Platform_Gamecube", "Platform_Wii", "Platform_Wad", "Platform_File"})
+       {"Platform_Gamecube", "Platform_Triforce", "Platform_Wii", "Platform_Wad", "Platform_File"})
   {
     m_platforms.append(GetResourceIcon(platform));
   }

@@ -14,6 +14,7 @@ enum class BooleanSetting(
     MAIN_SKIP_IPL(Settings.FILE_DOLPHIN, Settings.SECTION_INI_CORE, "SkipIPL", true),
     MAIN_DSP_HLE(Settings.FILE_DOLPHIN, Settings.SECTION_INI_CORE, "DSPHLE", true),
     MAIN_FASTMEM(Settings.FILE_DOLPHIN, Settings.SECTION_INI_CORE, "Fastmem", true),
+    MAIN_PAGE_TABLE_FASTMEM(Settings.FILE_DOLPHIN, Settings.SECTION_INI_CORE, "PageTableFastmem", true),
     MAIN_FASTMEM_ARENA(Settings.FILE_DOLPHIN, Settings.SECTION_INI_CORE, "FastmemArena", true),
     MAIN_LARGE_ENTRY_POINTS_MAP(Settings.FILE_DOLPHIN, Settings.SECTION_INI_CORE, "LargeEntryPointsMap", true),
     MAIN_CPU_THREAD(Settings.FILE_DOLPHIN, Settings.SECTION_INI_CORE, "CPUThread", true),
@@ -30,7 +31,8 @@ enum class BooleanSetting(
         "OverrideRegionSettings",
         false
     ),
-    MAIN_AUDIO_STRETCH(Settings.FILE_DOLPHIN, Settings.SECTION_INI_CORE, "AudioStretch", false),
+    MAIN_AUDIO_FILL_GAPS(Settings.FILE_DOLPHIN, Settings.SECTION_INI_CORE, "AudioFillGaps", true),
+    MAIN_AUDIO_PRESERVE_PITCH(Settings.FILE_DOLPHIN, Settings.SECTION_INI_CORE, "AudioPreservePitch", false),
     MAIN_BBA_XLINK_CHAT_OSD(
         Settings.FILE_DOLPHIN,
         Settings.SECTION_INI_CORE,
@@ -100,6 +102,12 @@ enum class BooleanSetting(
         "OverclockEnable",
         false
     ),
+    MAIN_VI_OVERCLOCK_ENABLE(
+        Settings.FILE_DOLPHIN,
+        Settings.SECTION_INI_CORE,
+        "VIOverclockEnable",
+        false
+    ),
     MAIN_RAM_OVERRIDE_ENABLE(
         Settings.FILE_DOLPHIN,
         Settings.SECTION_INI_CORE,
@@ -132,6 +140,12 @@ enum class BooleanSetting(
     ),
     MAIN_WII_WIILINK_ENABLE(Settings.FILE_DOLPHIN, Settings.SECTION_INI_CORE, "EnableWiiLink", false),
     MAIN_DSP_JIT(Settings.FILE_DOLPHIN, Settings.SECTION_INI_DSP, "EnableJIT", true),
+    MAIN_TIME_TRACKING(
+        Settings.FILE_DOLPHIN,
+        Settings.SECTION_INI_GENERAL,
+        "EnablePlayTimeTracking",
+        true
+    ),
     MAIN_EXPAND_TO_CUTOUT_AREA(
         Settings.FILE_DOLPHIN,
         Settings.SECTION_INI_INTERFACE,
@@ -231,6 +245,18 @@ enum class BooleanSetting(
         Settings.SECTION_EMULATED_USB_DEVICES,
         "EmulateInfinityBase",
         false
+    ),
+    MAIN_EMULATE_WII_SPEAK(
+        Settings.FILE_DOLPHIN,
+        Settings.SECTION_EMULATED_USB_DEVICES,
+        "EmulateWiiSpeak",
+        false
+    ),
+    MAIN_WII_SPEAK_MUTED(
+        Settings.FILE_DOLPHIN,
+        Settings.SECTION_EMULATED_USB_DEVICES,
+        "WiiSpeakMuted",
+        true
     ),
     MAIN_SHOW_GAME_TITLES(
         Settings.FILE_DOLPHIN,
@@ -651,8 +677,10 @@ enum class BooleanSetting(
     SYSCONF_PROGRESSIVE_SCAN(Settings.FILE_SYSCONF, "IPL", "PGS", true),
     SYSCONF_PAL60(Settings.FILE_SYSCONF, "IPL", "E60", true),
     SYSCONF_WIIMOTE_MOTOR(Settings.FILE_SYSCONF, "BT", "MOT", true),
+    GFX_VSYNC(Settings.FILE_GFX, Settings.SECTION_GFX_HARDWARE, "VSync", false),
     GFX_WIDESCREEN_HACK(Settings.FILE_GFX, Settings.SECTION_GFX_SETTINGS, "wideScreenHack", false),
-    GFX_CROP(Settings.FILE_GFX, Settings.SECTION_GFX_SETTINGS, "Crop", false),
+    GFX_CROP_TO_ASPECT_RATIO(Settings.FILE_GFX, Settings.SECTION_GFX_SETTINGS, "Crop", false),
+    GFX_CROP_CUSTOM(Settings.FILE_GFX, Settings.SECTION_GFX_SETTINGS, "CropCustom", false),
     GFX_SHOW_FPS(Settings.FILE_GFX, Settings.SECTION_GFX_SETTINGS, "ShowFPS", false),
     GFX_SHOW_FTIMES(Settings.FILE_GFX, Settings.SECTION_GFX_SETTINGS, "ShowFTimes", false),
     GFX_SHOW_VPS(Settings.FILE_GFX, Settings.SECTION_GFX_SETTINGS, "ShowVPS", false),
@@ -672,6 +700,18 @@ enum class BooleanSetting(
         false
     ),
     GFX_OVERLAY_STATS(Settings.FILE_GFX, Settings.SECTION_GFX_SETTINGS, "OverlayStats", false),
+    GFX_OVERLAY_PROJ_STATS(
+        Settings.FILE_GFX,
+        Settings.SECTION_GFX_SETTINGS,
+        "OverlayProjStats",
+        false
+    ),
+    GFX_SHOW_INTERNAL_RESOLUTION(
+        Settings.FILE_GFX,
+        Settings.SECTION_GFX_SETTINGS,
+        "ShowInternalResolution",
+        false
+    ),
     GFX_DUMP_TEXTURES(Settings.FILE_GFX, Settings.SECTION_GFX_SETTINGS, "DumpTextures", false),
     GFX_DUMP_MIP_TEXTURES(
         Settings.FILE_GFX,
@@ -788,7 +828,7 @@ enum class BooleanSetting(
         Settings.FILE_GFX,
         Settings.SECTION_GFX_HACKS,
         "EFBAccessEnable",
-        true
+        false
     ),
     GFX_HACK_EFB_DEFER_INVALIDATION(
         Settings.FILE_GFX,
@@ -858,7 +898,57 @@ enum class BooleanSetting(
         Settings.SECTION_LOGGER_OPTIONS,
         "WriteToFile",
         false
-    );
+    ),
+    ACHIEVEMENTS_ENABLED(
+        Settings.FILE_ACHIEVEMENTS,
+        Settings.SECTION_ACHIEVEMENTS,
+        "Enabled",
+        false
+    ),
+    ACHIEVEMENTS_HARDCORE_ENABLED(
+        Settings.FILE_ACHIEVEMENTS,
+        Settings.SECTION_ACHIEVEMENTS,
+        "HardcoreEnabled",
+        true
+    ),
+    ACHIEVEMENTS_UNOFFICIAL_ENABLED(
+        Settings.FILE_ACHIEVEMENTS,
+        Settings.SECTION_ACHIEVEMENTS,
+        "UnofficialEnabled",
+        false
+    ),
+    ACHIEVEMENTS_ENCORE_ENABLED(
+        Settings.FILE_ACHIEVEMENTS,
+        Settings.SECTION_ACHIEVEMENTS,
+        "EncoreEnabled",
+        false
+    ),
+    ACHIEVEMENTS_SPECTATOR_ENABLED(
+        Settings.FILE_ACHIEVEMENTS,
+        Settings.SECTION_ACHIEVEMENTS,
+        "SpectatorEnabled",
+        false
+    ),
+    ACHIEVEMENTS_LEADERBOARD_TRACKER_ENABLED(
+        Settings.FILE_ACHIEVEMENTS,
+        Settings.SECTION_ACHIEVEMENTS,
+        "LeaderboardTrackerEnabled",
+        true
+    ),
+    ACHIEVEMENTS_CHALLENGE_INDICATORS_ENABLED(
+        Settings.FILE_ACHIEVEMENTS,
+        Settings.SECTION_ACHIEVEMENTS,
+        "ChallengeIndicatorsEnabled",
+        true
+    ),
+    ACHIEVEMENTS_PROGRESS_ENABLED(
+        Settings.FILE_ACHIEVEMENTS,
+        Settings.SECTION_ACHIEVEMENTS,
+        "ProgressEnabled",
+        false
+    ),
+    NETPLAY_USE_UPNP(Settings.FILE_DOLPHIN, Settings.SECTION_INI_NETPLAY, "UseUPNP", false),
+    NETPLAY_SKIP_DUAL_CORE_WARNING(Settings.FILE_DOLPHIN, Settings.SECTION_INI_NETPLAY, "SkipDualCoreWarning", false);
 
     override val isOverridden: Boolean
         get() = NativeConfig.isOverridden(file, section, key)
@@ -915,8 +1005,15 @@ enum class BooleanSetting(
             MAIN_RAM_OVERRIDE_ENABLE,
             MAIN_CUSTOM_RTC_ENABLE,
             MAIN_DSP_JIT,
+            MAIN_TIME_TRACKING,
             MAIN_EMULATE_SKYLANDER_PORTAL,
-            MAIN_EMULATE_INFINITY_BASE
+            MAIN_EMULATE_INFINITY_BASE,
+            MAIN_EMULATE_WII_SPEAK,
+            ACHIEVEMENTS_ENABLED,
+            ACHIEVEMENTS_HARDCORE_ENABLED,
+            ACHIEVEMENTS_UNOFFICIAL_ENABLED,
+            ACHIEVEMENTS_ENCORE_ENABLED,
+            ACHIEVEMENTS_SPECTATOR_ENABLED
         )
         private val NOT_RUNTIME_EDITABLE: Set<BooleanSetting> =
             HashSet(listOf(*NOT_RUNTIME_EDITABLE_ARRAY))

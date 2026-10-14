@@ -37,7 +37,8 @@ struct SurfaceInfo
 namespace VideoCommon
 {
 class AsyncShaderCompiler;
-}
+class ShaderIncluder;
+}  // namespace VideoCommon
 
 using ClearColor = std::array<float, 4>;
 
@@ -101,15 +102,19 @@ public:
   // Binds the backbuffer for rendering. The buffer will be cleared immediately after binding.
   // This is where any window size changes are detected, therefore m_backbuffer_width and/or
   // m_backbuffer_height may change after this function returns.
-  virtual void BindBackbuffer(const ClearColor& clear_color = {}) {}
+  // If this returns false, a problem occurred binding the backbuffer.
+  // Don't render anything to it, but still call `PresentBackbuffer`, which will reset any
+  // per-frame resources and prepare for the next frame.
+  virtual bool BindBackbuffer(const ClearColor& clear_color = {}) { return true; }
 
   // Presents the backbuffer to the window system, or "swaps buffers".
   virtual void PresentBackbuffer() {}
 
   // Shader modules/objects.
-  virtual std::unique_ptr<AbstractShader> CreateShaderFromSource(ShaderStage stage,
-                                                                 std::string_view source,
-                                                                 std::string_view name = "") = 0;
+  virtual std::unique_ptr<AbstractShader>
+  CreateShaderFromSource(ShaderStage stage, std::string_view source,
+                         VideoCommon::ShaderIncluder* shader_includer = nullptr,
+                         std::string_view name = "") = 0;
   virtual std::unique_ptr<AbstractShader> CreateShaderFromBinary(ShaderStage stage,
                                                                  const void* data, size_t length,
                                                                  std::string_view name = "") = 0;
@@ -120,6 +125,20 @@ public:
                                                            size_t cache_data_length = 0) = 0;
 
   AbstractFramebuffer* GetCurrentFramebuffer() const { return m_current_framebuffer; }
+
+  struct ViewportAndScissor
+  {
+    MathUtil::Rectangle<int> scissor_rect;
+    float viewport_x = 0;
+    float viewport_y = 0;
+    float viewport_width = 0;
+    float viewport_height = 0;
+    float viewport_near_depth = 0;
+    float viewport_far_depth = 0;
+  };
+
+  // Stores the last viewport and scissor, the stored data is restored in 'EndUtilityDrawing'
+  void StoreViewportAndScissor(const ViewportAndScissor& viewport_and_scissor);
 
   // Sets viewport and scissor to the specified rectangle. rect is assumed to be in framebuffer
   // coordinates, i.e. lower-left origin in OpenGL.
@@ -172,6 +191,7 @@ protected:
 
 private:
   Common::EventHook m_config_changed;
+  ViewportAndScissor m_viewport_and_scissor;
 };
 
 extern std::unique_ptr<AbstractGfx> g_gfx;

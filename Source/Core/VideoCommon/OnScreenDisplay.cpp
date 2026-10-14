@@ -109,8 +109,8 @@ static float DrawMessage(int index, Message& msg, const ImVec2& position, int ti
 
       if (msg.texture)
       {
-        ImGui::Image(msg.texture.get(), ImVec2(static_cast<float>(msg.icon->width),
-                                               static_cast<float>(msg.icon->height)));
+        ImGui::Image(*msg.texture.get(), ImVec2(static_cast<float>(msg.icon->width),
+                                                static_cast<float>(msg.icon->height)));
         ImGui::SameLine();
       }
     }
@@ -142,14 +142,14 @@ void AddTypedMessage(MessageType type, std::string message, u32 ms, u32 argb,
   for (auto it = range.first; it != range.second; ++it)
     it->second.should_discard = true;
 
-  s_messages.emplace(type, Message(std::move(message), ms, argb, std::move(icon)));
+  s_messages.emplace(type, Message(std::move(message), ms, argb, icon));
 }
 
 void AddMessage(std::string message, u32 ms, u32 argb,
                 const VideoCommon::CustomTextureData::ArraySlice::Level* icon)
 {
   std::lock_guard lock{s_messages_mutex};
-  s_messages.emplace(MessageType::Typeless, Message(std::move(message), ms, argb, std::move(icon)));
+  s_messages.emplace(MessageType::Typeless, Message(std::move(message), ms, argb, icon));
 }
 
 void DrawMessages()

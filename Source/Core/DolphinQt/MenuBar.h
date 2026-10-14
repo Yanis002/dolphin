@@ -12,6 +12,9 @@
 #include <QPointer>
 
 #include "Common/CommonTypes.h"
+#ifdef RC_CLIENT_SUPPORTS_RAINTEGRATION
+#include "Common/HookableEvent.h"
+#endif  // RC_CLIENT_SUPPORTS_RAINTEGRATION
 
 class QMenu;
 class ParallelProgressDialog;
@@ -43,7 +46,10 @@ public:
 
   explicit MenuBar(QWidget* parent = nullptr);
 
-  void UpdateToolsMenu(bool emulation_started);
+  void UpdateToolsMenu(Core::State state);
+#ifdef RC_CLIENT_SUPPORTS_RAINTEGRATION
+  void UpdateAchievementDevelopmentMenu();
+#endif  // RC_CLIENT_SUPPORTS_RAINTEGRATION
 
   QMenu* GetListColumnsMenu() const { return m_cols_menu; }
 
@@ -56,6 +62,8 @@ signals:
   void ChangeDisc();
   void EjectDisc();
   void OpenUserFolder();
+  void OpenConfigFolder();
+  void OpenCacheFolder();
 
   // Emulation
   void Play();
@@ -91,6 +99,8 @@ signals:
   void ShowResourcePackManager();
   void ShowSkylanderPortal();
   void ShowInfinityBase();
+  void ShowWiiSpeakWindow();
+  void ShowLogitechMicWindow();
   void ConnectWiiRemote(int id);
 
 #ifdef USE_RETRO_ACHIEVEMENTS
@@ -121,12 +131,15 @@ signals:
   void ExportRecording();
   void ShowTASInput();
 
-  void SelectionChanged(std::shared_ptr<const UICommon::GameFile> game_file);
+  void SelectionChanged(const std::shared_ptr<const UICommon::GameFile>& game_file);
   void RecordingStatusChanged(bool recording);
   void ReadOnlyModeChanged(bool read_only);
 
+  void ConfigureOSD();
+
 private:
   void OnEmulationStateChanged(Core::State state);
+  void OnConfigChanged();
 
   void AddFileMenu();
 
@@ -152,6 +165,7 @@ private:
 
   void InstallWAD();
   void ImportWiiSave();
+  void ImportWiiSaves();
   void ExportWiiSaves();
   void CheckNAND();
   void NANDExtractCertificates();
@@ -181,10 +195,11 @@ private:
   void LogInstructions();
   void SearchInstruction();
 
-  void OnSelectionChanged(std::shared_ptr<const UICommon::GameFile> game_file);
+  void OnSelectionChanged(const std::shared_ptr<const UICommon::GameFile>& game_file);
   void OnRecordingStatusChanged(bool recording);
   void OnReadOnlyModeChanged(bool read_only);
   void OnDebugModeToggled(bool enabled);
+  void OnWipeJitBlockProfilingData();
   void OnWriteJitBlockLogDump();
 
   QString GetSignatureSelector() const;
@@ -198,20 +213,28 @@ private:
   QAction* m_eject_disc;
   QMenu* m_backup_menu;
   QAction* m_open_user_folder;
+  QAction* m_open_config_folder;
+  QAction* m_open_cache_folder;
 
   // Tools
   QAction* m_wad_install_action;
   QMenu* m_perform_online_update_menu;
   QAction* m_perform_online_update_for_current_region;
+  QAction* m_achievements_action;
+#ifdef RC_CLIENT_SUPPORTS_RAINTEGRATION
+  QMenu* m_achievements_dev_menu;
+#endif  // RC_CLIENT_SUPPORTS_RAINTEGRATION
   QAction* m_ntscj_ipl;
   QAction* m_ntscu_ipl;
   QAction* m_pal_ipl;
+  QAction* m_dev_ipl;
   QMenu* m_manage_nand_menu;
   QAction* m_import_backup;
   QAction* m_check_nand;
   QAction* m_extract_certificates;
   std::array<QAction*, 5> m_wii_remotes;
   QAction* m_import_wii_save;
+  QAction* m_import_wii_saves;
   QAction* m_export_wii_saves;
 
   // Emulation
@@ -236,6 +259,7 @@ private:
   QAction* m_recording_start;
   QAction* m_recording_stop;
   QAction* m_recording_read_only;
+  QAction* m_movie_window;
 
   // Options
   QAction* m_boot_to_pause;
@@ -264,12 +288,14 @@ private:
   QAction* m_jit_block_linking;
   QAction* m_jit_disable_cache;
   QAction* m_jit_disable_fastmem;
+  QAction* m_jit_disable_page_table_fastmem;
   QAction* m_jit_disable_fastmem_arena;
   QAction* m_jit_disable_large_entry_points_map;
   QAction* m_jit_clear_cache;
   QAction* m_jit_log_coverage;
   QAction* m_jit_search_instruction;
   QAction* m_jit_profile_blocks;
+  QAction* m_jit_wipe_profiling_data;
   QAction* m_jit_write_cache_log_dump;
   QAction* m_jit_off;
   QAction* m_jit_loadstore_off;
@@ -284,6 +310,11 @@ private:
   QAction* m_jit_systemregisters_off;
   QAction* m_jit_branch_off;
   QAction* m_jit_register_cache_off;
+  QAction* m_debugger_show_demangled_names;
 
   bool m_game_selected = false;
+
+#ifdef RC_CLIENT_SUPPORTS_RAINTEGRATION
+  Common::EventHook m_raintegration_event_hook;
+#endif  // RC_CLIENT_SUPPORTS_RAINTEGRATION
 };

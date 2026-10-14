@@ -3,16 +3,11 @@
 
 #include "VideoBackends/Vulkan/VKGfx.h"
 
-#include <algorithm>
 #include <cstddef>
 #include <cstdio>
-#include <limits>
-#include <string>
-#include <tuple>
+#include <utility>
 
-#include "Common/Assert.h"
 #include "Common/CommonTypes.h"
-#include "Common/EnumUtils.h"
 #include "Common/Logging/Log.h"
 #include "Common/MsgHandler.h"
 
@@ -65,9 +60,10 @@ std::unique_ptr<AbstractStagingTexture> VKGfx::CreateStagingTexture(StagingTextu
 }
 
 std::unique_ptr<AbstractShader>
-VKGfx::CreateShaderFromSource(ShaderStage stage, std::string_view source, std::string_view name)
+VKGfx::CreateShaderFromSource(ShaderStage stage, std::string_view source,
+                              VideoCommon::ShaderIncluder* shader_includer, std::string_view name)
 {
-  return VKShader::CreateFromSource(stage, source, name);
+  return VKShader::CreateFromSource(stage, source, shader_includer, name);
 }
 
 std::unique_ptr<AbstractShader> VKGfx::CreateShaderFromBinary(ShaderStage stage, const void* data,
@@ -118,7 +114,7 @@ void VKGfx::ClearRegion(const MathUtil::Rectangle<int>& target_rc, bool color_en
   clear_color_value.color.float32[2] = static_cast<float>((color >> 0) & 0xFF) / 255.0f;
   clear_color_value.color.float32[3] = static_cast<float>((color >> 24) & 0xFF) / 255.0f;
   clear_depth_value.depthStencil.depth = static_cast<float>(z & 0xFFFFFF) / 16777216.0f;
-  if (!g_ActiveConfig.backend_info.bSupportsReversedDepthRange)
+  if (!g_backend_info.bSupportsReversedDepthRange)
     clear_depth_value.depthStencil.depth = 1.0f - clear_depth_value.depthStencil.depth;
 
   // If we're not in a render pass (start of the frame), we can use a clear render pass
@@ -221,12 +217,11 @@ void VKGfx::WaitForGPUIdle()
   ExecuteCommandBuffer(false, true);
 }
 
-void VKGfx::BindBackbuffer(const ClearColor& clear_color)
+bool VKGfx::BindBackbuffer(const ClearColor& clear_color)
 {
   StateTracker::GetInstance()->EndRenderPass();
 
-  if (!g_command_buffer_mgr->CheckLastPresentDone())
-    g_command_buffer_mgr->WaitForWorkerThreadIdle();
+  g_command_buffer_mgr->WaitForWorkerThreadIdle();
 
   // Handle host window resizes.
   CheckForSurfaceChange();
@@ -278,15 +273,27 @@ void VKGfx::BindBackbuffer(const ClearColor& clear_color)
     else
     {
       ERROR_LOG_FMT(VIDEO, "Unknown present error {:#010X} {}, please report.",
-                    Common::ToUnderlying(res), VkResultToString(res));
+                    std::to_underlying(res), VkResultToString(res));
       m_swap_chain->RecreateSwapChain();
     }
 
     res = m_swap_chain->AcquireNextImage();
     if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR)
-      PanicAlertFmt("Failed to grab image from swap chain: {:#010X} {}", Common::ToUnderlying(res),
-                    VkResultToString(res));
+    {
+      if (res == VK_ERROR_OUT_OF_DATE_KHR)
+      {
+        INFO_LOG_FMT(VIDEO, "Swapchain still out of date, will try again next frame...");
+      }
+      else
+      {
+        PanicAlertFmt("Failed to grab image from swap chain: {:#010X} {}", std::to_underlying(res),
+                      VkResultToString(res));
+      }
+    }
   }
+
+  if (!m_swap_chain->IsCurrentImageValid())
+    return false;
 
   // Transition from undefined (or present src, but it can be substituted) to
   // color attachment ready for writing. These transitions must occur outside
@@ -296,6 +303,7 @@ void VKGfx::BindBackbuffer(const ClearColor& clear_color)
       g_command_buffer_mgr->GetCurrentCommandBuffer(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
   SetAndClearFramebuffer(m_swap_chain->GetCurrentFramebuffer(),
                          ClearColor{{0.0f, 0.0f, 0.0f, 1.0f}});
+  return true;
 }
 
 void VKGfx::PresentBackbuffer()
@@ -303,17 +311,24 @@ void VKGfx::PresentBackbuffer()
   // End drawing to backbuffer
   StateTracker::GetInstance()->EndRenderPass();
 
-  // Transition the backbuffer to PRESENT_SRC to ensure all commands drawing
-  // to it have finished before present.
-  m_swap_chain->GetCurrentTexture()->TransitionToLayout(
-      g_command_buffer_mgr->GetCurrentCommandBuffer(), VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+  if (m_swap_chain->IsCurrentImageValid())
+  {
+    // Transition the backbuffer to PRESENT_SRC to ensure all commands drawing
+    // to it have finished before present.
+    m_swap_chain->GetCurrentTexture()->TransitionToLayout(
+        g_command_buffer_mgr->GetCurrentCommandBuffer(), VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
-  // Submit the current command buffer, signaling rendering finished semaphore when it's done
-  // Because this final command buffer is rendering to the swap chain, we need to wait for
-  // the available semaphore to be signaled before executing the buffer. This final submission
-  // can happen off-thread in the background while we're preparing the next frame.
-  g_command_buffer_mgr->SubmitCommandBuffer(true, false, m_swap_chain->GetSwapChain(),
-                                            m_swap_chain->GetCurrentImageIndex());
+    // Submit the current command buffer, signaling rendering finished semaphore when it's done
+    // Because this final command buffer is rendering to the swap chain, we need to wait for
+    // the available semaphore to be signaled before executing the buffer. This final submission
+    // can happen off-thread in the background while we're preparing the next frame.
+    g_command_buffer_mgr->SubmitCommandBuffer(true, false, true, m_swap_chain->GetSwapChain(),
+                                              m_swap_chain->GetCurrentImageIndex());
+  }
+  else
+  {
+    g_command_buffer_mgr->SubmitCommandBuffer(true, false, true);
+  }
 
   // New cmdbuffer, so invalidate state.
   StateTracker::GetInstance()->InvalidateCachedState();
